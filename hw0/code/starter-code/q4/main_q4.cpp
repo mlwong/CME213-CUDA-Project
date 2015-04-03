@@ -33,7 +33,7 @@ int main()
               << ", "
               << ub
               << "] out of "
-              << 1000
+              << data.size()
               << " points: "
               << num_of_pt_in_range
               << std::endl;
