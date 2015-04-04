@@ -46,7 +46,7 @@ class LTMatrix: public Matrix<T>
             
             for (unsigned int i = 0; i < num_data; i++)
             {
-                data[i] = 0.0;
+                data[i] = (T) 0;
             }
         }
         
