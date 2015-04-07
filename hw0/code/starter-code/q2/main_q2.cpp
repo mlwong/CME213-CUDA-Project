@@ -168,7 +168,20 @@ int main()
         D(10, 0) = 1.0;
         
         std::cout << "Test 4 did not pass!" << std::endl;
-        std::cout << "The class can access entries that are not in the matrix!"
+        std::cout << "The class can access entries that are not in the matrix, which is not allowed!!"
+                  << std::endl;
+        return 1;
+    }
+    catch(std::exception &e){}
+    
+    try
+    {
+        LTMatrix<double> D(10);
+        
+        D(0, 1) = 1.0;
+        
+        std::cout << "Test 4 did not pass!" << std::endl;
+        std::cout << "The class can access entries that are above the diagonal, which is not allowed!!"
                   << std::endl;
         return 1;
     }
