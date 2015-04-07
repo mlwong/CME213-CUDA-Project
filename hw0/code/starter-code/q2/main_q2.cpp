@@ -16,7 +16,7 @@ int main()
         
         for (unsigned int i = 0; i < 10; i++)
         {
-            for (unsigned int j = 0; j < 10; j++)
+            for (unsigned int j = 0; j <= i; j++)
             {
                 if (!(A_d(i, j) == 0.0))
                 {
@@ -30,7 +30,7 @@ int main()
         
         for (unsigned int i = 0; i < 10; i++)
         {
-            for (unsigned int j = 0; j < 10; j++)
+            for (unsigned int j = 0; j <= i; j++)
             {
                 if (!(A_f(i, j) == 0.0f))
                 {

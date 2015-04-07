@@ -13,7 +13,6 @@ class LTMatrix: public Matrix<T>
     private:
         unsigned int n = 0;
         T *data = NULL;
-        T zero = (T) 0;
         
         /*
          * method to get the index in the array data
@@ -52,19 +51,20 @@ class LTMatrix: public Matrix<T>
         
         /*
          * method to access and modify entries in the matrix
-         * the method take inputs row i and column j
+         * the method takes inputs row i and column j
          */
         T& operator() (unsigned int i, unsigned int j)
         {
             if (i >= n || j >= n)
             {
-                throw std::runtime_error("ERROR: Matrix index is invalid!");
+                throw std::runtime_error(
+                    "ERROR: Matrix index is invalid (accessing element not in the matrix)!");
             }
             
             if (j > i)
-            {
-                zero = (T) 0;
-                return zero;
+            { 
+                throw std::runtime_error(
+                    "ERROR: Matrix index is invalid (accessing element above the diagonal)!");
             }
             else
             {
