@@ -42,8 +42,8 @@ int main()
     catch(std::exception &e)
     {
         std::cout << "Test 1 did not pass!" << std::endl;
-        std::cerr << "Exception caught!" << std::endl;
-        std::cerr << "e.what() = " << e.what() << std::endl;
+        std::cout << "Exception caught!" << std::endl;
+        std::cout << "e.what() = " << e.what() << std::endl;
         return 1;
     }
     
@@ -69,6 +69,7 @@ int main()
         }
         
         double counter2 = 1.0;
+        
         for (unsigned int i = 0; i < 10; i++)
         {
             for (unsigned int j = 0; j <= i; j++)
@@ -96,6 +97,7 @@ int main()
         }
         
         float counter4 = 1.0f;
+        
         for (unsigned int i = 0; i < 10; i++)
         {
             for (unsigned int j = 0; j <= i; j++)
@@ -111,8 +113,8 @@ int main()
     catch(std::exception &e)
     {
         std::cout << "Test 2 did not pass!" << std::endl;
-        std::cerr << "Exception caught!" << std::endl;
-        std::cerr << "e.what() = " << e.what() << std::endl;
+        std::cout << "Exception caught!" << std::endl;
+        std::cout << "e.what() = " << e.what() << std::endl;
         return 1;
     }
     
@@ -141,8 +143,8 @@ int main()
     catch(std::exception &e)
     {
         std::cout << "Test 3 did not pass!" << std::endl;
-        std::cerr << "Exception caught!" << std::endl;
-        std::cerr << "e.what() = " << e.what() << std::endl;
+        std::cout << "Exception caught!" << std::endl;
+        std::cout << "e.what() = " << e.what() << std::endl;
         return 1;
     }
     

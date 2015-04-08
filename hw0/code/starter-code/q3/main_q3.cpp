@@ -53,8 +53,8 @@ void PrintRepr(std::vector<std::shared_ptr<Matrix>> &matrices)
 int main()
 {
   /* fill a vector with an instance of SparseMatrix
-   *  and an instance of ToeplitzMatrix by using
-   *  smart pointers
+   * and an instance of ToeplitzMatrix by using
+   * smart pointers
    */
   std::vector<std::shared_ptr<Matrix>> matrices;
   
