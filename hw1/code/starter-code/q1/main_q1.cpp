@@ -16,12 +16,32 @@ const uint kSize = 30000000;
 std::vector<uint> serialSum(const std::vector<uint> &v) {
   std::vector<uint> sums(2);
   // TODO
+  
+  sums[0] = 0;
+  sums[1] = 0;
+  
+  for (auto &element : v)
+  {
+    if (element % 2 == 0)
+    {
+      sums[0] += element;
+    }
+    else
+    {
+      sums[1] += element;
+    }
+  }
+  
   return sums;
 }
 
 std::vector<uint> parallelSum(const std::vector<uint> &v) {
   std::vector<uint> sums(2);
   // TODO
+  
+  sums[0] = 0;
+  sums[1] = 0;
+  
   return sums;
 }
 

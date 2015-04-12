@@ -26,6 +26,19 @@ std::vector<uint> computeBlockHistograms(const std::vector<uint>& keys, uint num
                                          uint numBits, uint startBit, uint blockSize) {
   std::vector<uint> blockHistograms(numBlocks * numBuckets, 0);
   // TODO
+  
+  uint mask = numBuckets - 1;
+  
+#pragma omp parallel for
+  for (uint n = 0; n < numBlocks; n++)
+  {
+    for (uint i = n*blockSize; (i < (n + 1)*blockSize && i < keys.size()); i++)
+    {
+      uint bucket = (keys[i] >> startBit) & mask;
+      ++blockHistograms[n*numBuckets + bucket];
+    }
+  } 
+  
   return blockHistograms;
 }
 
@@ -37,6 +50,15 @@ std::vector<uint> computeBlockHistograms(const std::vector<uint>& keys, uint num
 std::vector<uint> reduceLocalHistoToGlobal(const std::vector<uint>& blockHistograms, uint numBlocks, uint numBuckets) {
   std::vector<uint> globalHisto(numBuckets, 0);
   // TODO
+  
+  for (uint n = 0; n < numBlocks; n++)
+  {
+    for (uint i = 0; i < numBuckets; i++)
+    {
+      globalHisto[i] += blockHistograms[n*numBuckets + i];
+    }
+  }
+  
   return globalHisto;
 }
 
@@ -50,7 +72,21 @@ std::vector<uint> computeBlockExScanFromGlobalHisto(uint numBuckets, uint numBlo
                                                     const std::vector<uint>& globalHistoExScan,
                                                     const std::vector<uint>& blockHistograms) { 
   std::vector<uint> blockExScan(numBuckets * numBlocks, 0);
-  // TODO 
+  // TODO
+  
+  for (uint i = 0; i < numBuckets; i++)
+  {
+    blockExScan[i] = globalHistoExScan[i];
+  }
+  
+  for (uint n = 1; n < numBlocks; n++)
+  {
+    for (uint i = 0; i < numBuckets; i++)
+    {
+      blockExScan[n*numBuckets + i] = blockExScan[(n - 1)*numBuckets + i] + blockHistograms[(n - 1)*numBuckets + i];
+    }
+  }
+  
   return blockExScan;
 }
 
@@ -62,6 +98,20 @@ std::vector<uint> computeBlockExScanFromGlobalHisto(uint numBuckets, uint numBlo
 void populateOutputFromBlockExScan(const std::vector<uint>& blockExScan, uint numBlocks, uint numBuckets, uint startBit,
                                    uint numBits, uint blockSize, const std::vector<uint>& keys, std::vector<uint> &sorted) {
   // TODO
+  
+  uint mask = numBuckets - 1;
+  
+#pragma omp parallel for
+  for (uint n = 0; n < numBlocks; n++)
+  {
+    std::vector<uint> bucketCounts(numBuckets, 0);
+    for (uint i = n*blockSize; (i < (n + 1)*blockSize && i < keys.size()); i++)
+    {
+      uint bucket = (keys[i] >> startBit) & mask;
+      sorted[blockExScan[n*numBuckets + bucket] + bucketCounts[bucket]] = keys[i];
+      ++bucketCounts[bucket];
+    }
+  }
 }
 
 /* Function: scanGlobalHisto
@@ -70,7 +120,13 @@ void populateOutputFromBlockExScan(const std::vector<uint>& blockExScan, uint nu
  */
 std::vector<uint> scanGlobalHisto(const std::vector<uint>& globalHisto, uint numBuckets) {
   std::vector<uint> globalHistoExScan(numBuckets, 0);
-  // TODO  
+  // TODO
+  
+  for (uint i = 1; i < numBuckets; i++)
+  {
+    globalHistoExScan[i] = globalHistoExScan[i - 1] + globalHisto[i - 1];
+  }
+  
   return globalHistoExScan;
 }
 
