@@ -20,15 +20,15 @@ std::vector<uint> serialSum(const std::vector<uint> &v) {
   sums[0] = 0;
   sums[1] = 0;
   
-  for (auto &element : v)
+  for (uint i = 0; i< v.size(); i++)
   {
-    if (element % 2 == 0)
+    if (v[i] % 2 == 0)
     {
-      sums[0] += element;
+      sums[0] += v[i];
     }
     else
     {
-      sums[1] += element;
+      sums[1] += v[i];
     }
   }
   
@@ -39,8 +39,24 @@ std::vector<uint> parallelSum(const std::vector<uint> &v) {
   std::vector<uint> sums(2);
   // TODO
   
-  sums[0] = 0;
-  sums[1] = 0;
+  uint sum_even = 0;
+  uint sum_odd  = 0;
+  
+#pragma omp parallel for reduction(+:sum_odd) reduction(+:sum_even)
+  for (uint i = 0; i< v.size(); i++)
+  {
+    if (v[i] % 2 == 0)
+    {
+      sum_even += v[i];
+    }
+    else
+    {
+      sum_odd += v[i];
+    }
+  }
+
+  sums[0] = sum_even;
+  sums[1] = sum_odd;
   
   return sums;
 }
