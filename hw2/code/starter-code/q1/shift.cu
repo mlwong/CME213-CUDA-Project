@@ -123,7 +123,7 @@ double doGPUShiftUInt2(const unsigned char *d_input
   // TODO: compute your grid dimensions
   
   unsigned int num_uint2 = (text_size + 7)/8;
-  unsigned int grid_size = std::min((num_uint2 + block_size - 1)/block_size, (unsigned int) 65535);
+  unsigned int grid_size = std::min((num_uint2 + block_size - 1)/block_size, 65535u);
   
   
   // TODO: compute 4 byte shift value
