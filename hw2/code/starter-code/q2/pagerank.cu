@@ -25,7 +25,7 @@ void device_graph_propagate(const uint *graph_indices
     for (uint idx = graph_indices[i]; idx < graph_indices[i + 1]; idx++)
     {
       uint j = graph_edges[idx];
-      sum += inv_edges_per_node[j] * graph_nodes_in[j];
+      sum += inv_edges_per_node[j]*graph_nodes_in[j];
     }
     
     graph_nodes_out[i] = 0.5f*sum + 0.5f/((float) num_nodes);

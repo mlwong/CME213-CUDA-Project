@@ -209,7 +209,7 @@ int main(void)
       // check CUDA output versus reference output
       checkErrors(h_gpu_node_values_output, h_cpu_node_values_output);
       // TODO: fill in the calculation for totalBytes
-      size_t totalBytes = 0;
+      size_t totalBytes = (3 + 3*(*edges))*(*nodes)*iterations*sizeof(uint);
       std::cout << std::setw(15) << std::fixed << std::setprecision(2) << totalBytes / (gpu_time / 1000.) / 1E9 << std::flush;
     }
     std::cout << std::endl;
