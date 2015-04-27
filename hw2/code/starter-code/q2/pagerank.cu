@@ -72,12 +72,14 @@ double device_graph_iterate(const uint *h_graph_indices
 {
   // TODO: allocate GPU memory
   
-  uint *d_graph_indices, *d_graph_edges;
+  uint *d_graph_indices = NULL;
+  uint *d_graph_edges = NULL;
   
   // the two pagerank vectors which switch roll on every iteration
-  float *d_pi_1, *d_pi_2;
+  float *d_pi_1 = NULL;
+  float *d_pi_2 = NULL;
   
-  float*d_inv_edges_per_node;
+  float *d_inv_edges_per_node = NULL;
   
   // calculate the total number of edges
   int num_edges = num_nodes*avg_edges;
@@ -97,6 +99,12 @@ double device_graph_iterate(const uint *h_graph_indices
   err[4] = cudaMalloc(&d_inv_edges_per_node, sizeof(float)*num_nodes);
   
   // TODO: check for allocation failure
+  
+  if ((!d_graph_indices) || (!d_graph_edges) || (!d_pi_1) || (!d_pi_2) || (!d_inv_edges_per_node))
+  {
+   std::cerr << "There was allocation failure on GPU!" << std::endl;
+   exit(1);
+  }
   
   for (int i = 0; i < num_Malloc; i++)
   {
