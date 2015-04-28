@@ -46,7 +46,7 @@ __global__ void shift_int(const unsigned int *input_array
 }
 
 //Here we go even further and load 8 bytes
-//does it make a further improvement?
+//does it make a further improvement? No
 __global__ void shift_int2(const uint2 *input_array
                          , uint2 *output_array
                          , unsigned int shift_amount
@@ -61,7 +61,6 @@ __global__ void shift_int2(const uint2 *input_array
     output_array[i].x = input_array[i].x + shift_amount;
     output_array[i].y = input_array[i].y + shift_amount;
   }
-  
 }
 
 //the following three kernels launch their respective kernels

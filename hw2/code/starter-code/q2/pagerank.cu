@@ -20,7 +20,7 @@ void device_graph_propagate(const uint *graph_indices
 
   for (uint i = tid; i < num_nodes; i += gridDim.x*blockDim.x)
   {
-    float sum = 0u;
+    float sum = 0;
     
     for (uint idx = graph_indices[i]; idx < graph_indices[i + 1]; idx++)
     {
