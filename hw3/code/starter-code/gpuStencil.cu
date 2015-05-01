@@ -62,6 +62,23 @@ void gpuStencil(float *next, const float *curr, int gx, int nx, int ny,
                 float xcfl, float ycfl)
 {
   // TODO
+  
+  const int tid_x = threadIdx.x + blockDim.x * blockIdx.x;
+  const int tid_y = threadIdx.y + blockDim.y * blockIdx.y;
+  
+  // If the thread is not inside the domain, return
+  if ((tid_x >= nx) || (tid_y >= ny))
+  {
+    return;
+  }
+  
+  // Compute the boarder size
+  const int b = order/2;
+  
+  // Compute the index of the point in 1D array
+  const int idx = (tid_y + b)*gx + (tid_x + b);
+  
+  next[idx] = Stencil<order> (&curr[idx], gx, xcfl, ycfl);
 }
 
 /**
@@ -82,9 +99,33 @@ double gpuComputation(Grid &curr_grid, const simParams &params) {
   Grid next_grid(curr_grid);
 
   // TODO: Declare variables/Compute parameters.
+  
   dim3 threads(0, 0);
   dim3 blocks(0, 0);
-
+  
+  // Set the size of each block
+  const unsigned int block_size = 192u;
+  const unsigned int block_dim_x = 32u;
+  
+  int nx = params.nx();
+  int ny = params.ny();
+  
+  int gx = params.gx();
+  
+  float xcfl = params.xcfl();
+  float ycfl = params.ycfl();
+  
+  int order = params.order();
+  
+  // Compute the block dimension
+  threads.x = block_dim_x;
+  threads.y = block_size/block_dim_x;
+  
+  // Assume each dimension of the block is less than 65536
+  // and compute the grid size
+  blocks.x = ((unsigned int) nx + threads.x - 1)/threads.x;
+  blocks.y = ((unsigned int) ny + threads.y - 1)/threads.y;
+  
   event_pair timer;
   start_timer(&timer);
   for (int i = 0; i < params.iters(); ++i) {
@@ -93,6 +134,25 @@ double gpuComputation(Grid &curr_grid, const simParams &params) {
     BC.updateBC(next_grid.dGrid_, curr_grid.dGrid_);
 
     // TODO: Apply stencil.
+    
+    switch (order)
+    {
+      case 2:
+        gpuStencil<2><<<blocks, threads>>>(next_grid.dGrid_, curr_grid.dGrid_,
+                                           gx, nx, ny, xcfl, ycfl);
+        break;
+      case 4:
+        gpuStencil<4><<<blocks, threads>>>(next_grid.dGrid_, curr_grid.dGrid_,
+                                           gx, nx, ny, xcfl, ycfl);
+        break;
+      case 8:
+        gpuStencil<8><<<blocks, threads>>>(next_grid.dGrid_, curr_grid.dGrid_,
+                                           gx, nx, ny, xcfl, ycfl);
+        break;
+      default:
+        printf("ERROR: Order %d not supported", order);
+        exit(1);
+    }
     
     check_launch("gpuStencil");
 
