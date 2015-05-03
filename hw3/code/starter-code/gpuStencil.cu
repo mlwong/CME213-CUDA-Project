@@ -104,8 +104,8 @@ double gpuComputation(Grid &curr_grid, const simParams &params) {
   dim3 blocks(0, 0);
   
   // Set the size of each block
-  const unsigned int block_dim_x = 32u;
-  const unsigned int block_dim_y = 16u;
+  const unsigned int block_dim_x = 64u;
+  const unsigned int block_dim_y = 8u;
   
   int nx = params.nx();
   int ny = params.ny();
@@ -201,7 +201,7 @@ void gpuStencilLoop(float *next, const float *curr, int gx, int nx, int ny,
   
   // Compute the boarder size
   const int b = order/2;
-  
+
   for (int i = 0; i < numYPerStep; i++)
   {
     if (tid_y + i*blockDim.y >= ny)
