@@ -330,6 +330,7 @@ void gpuShared(float *next, const float *curr, int gx, int gy,
   // Load the data into shared memory
   if (global_col < gx)
   {
+    // Compute the bound of the loop
     const int y_lim = min(side, gy - (side - order)*blockIdx.y);
     for (int i = lane_y; i < y_lim; i += blockDim.y)
     {
@@ -348,6 +349,7 @@ void gpuShared(float *next, const float *curr, int gx, int gy,
   {
     if (lane_x >= b && lane_x < blockDim.x - b)
     {
+      // Compute the bound of the loop
       const int y_lim = min(side - b, gy - b - (side - order)*blockIdx.y);
       for (int i = lane_y + b; i < y_lim; i += blockDim.y)
       {
@@ -387,7 +389,7 @@ double gpuComputationShared(Grid &curr_grid, const simParams &params) {
   // Set the size of each block
   const unsigned int block_dim_x = 64u;
   const unsigned int block_dim_y = 8u;
-  const unsigned int smem_side = 64u;
+  const unsigned int smem_side = block_dim_x;
   
   int nx = params.nx();
   int ny = params.ny();
