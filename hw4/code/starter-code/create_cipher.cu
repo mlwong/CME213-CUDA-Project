@@ -27,7 +27,7 @@ struct isnot_lowercase_alpha : thrust::unary_function<unsigned char, bool> {
   __host__ __device__
   bool operator()(const unsigned char &character)
   {
-    if (character < 97 || character > 122)
+    if (character < 'a' || character > 'z')
     {
       return true;
     }
@@ -44,7 +44,7 @@ struct upper_to_lower : thrust::unary_function<unsigned char, unsigned char> {
   __host__ __device__
   unsigned char operator()(const unsigned char &character)
   {
-    if (character > 64 && character < 91)
+    if (character >= 'A' && character <= 'Z')
     {
       return (character + 32);
     }
