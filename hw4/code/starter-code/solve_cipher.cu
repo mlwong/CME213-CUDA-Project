@@ -18,6 +18,33 @@
 struct apply_shift : thrust::binary_function<unsigned char, int,
                                              unsigned char> {
   // TODO
+  
+  int *shift_amounts;
+  int period;
+  
+  __host__ __device__
+  apply_shift(int *shift_amounts_input, int period_input):
+                shift_amounts(shift_amounts_input),
+                period(period_input)
+  {}
+  
+  __host__ __device__
+  unsigned char operator()(const unsigned char &character, const unsigned int &position)
+  {
+    unsigned char converted_character = character + shift_amounts[position%period];
+    
+    if (converted_character > 'z')
+    {
+      converted_character -= 26;
+    }
+    else if (converted_character < 'a')
+    {
+      converted_character += 26;
+    }
+    
+    return converted_character;    
+  }
+  
 };
 
 int main(int argc, char **argv) {
@@ -60,6 +87,14 @@ int main(int argc, char **argv) {
       // TODO: Use thrust to compute the number of characters that match
       // when shifting text_clean by shift_idx.
       int numMatches = 0; // = ?  TODO
+      
+      numMatches = thrust::inner_product(text_clean.begin(),
+                                         text_clean.end() - shift_idx,
+                                         text_clean.begin() + shift_idx,
+                                         (int)0,
+                                         thrust::plus<int>(),
+                                         thrust::equal_to<unsigned char>());
+
 
       double ioc = numMatches /
           static_cast<double>((text_clean.size() - shift_idx) / 26.);
@@ -96,6 +131,29 @@ int main(int argc, char **argv) {
   // analyses on text_copy to find the shift which aligns the most common
   // character in text_copy with the character 'e'. Fill up the
   // dShifts vector with the correct shifts.
+  
+  for (int i = 0; i < keyLength; i++)
+  {
+    strided_range<Iterator> it(text_copy.begin() + i, text_copy.end(), keyLength);
+    thrust::sort(it.begin(), it.end());
+    
+    thrust::device_vector<unsigned char> histogram_keys(26);
+    thrust::device_vector<int> histogram_values(26);
+    
+    thrust::reduce_by_key(it.begin(),
+                          it.end(),
+                          thrust::make_constant_iterator(1),
+                          histogram_keys.begin(),
+                          histogram_values.begin());
+                          
+    
+    thrust::device_vector<int>::iterator it_max = thrust::max_element(histogram_values.begin(),
+                                                                      histogram_values.end());
+    
+    int max_location = it_max - histogram_values.begin();
+    
+    dShifts[i] = 4 - max_location;
+  }
 
   std::cout << "\nEncryption key: ";
   for (unsigned int i = 0; i < keyLength; ++i)
@@ -106,6 +164,15 @@ int main(int argc, char **argv) {
   // take the shifts and transform cipher text back to plain text
   // TODO : transform the cipher text back to the plain text by using the
   // apply_shift functor.
+  
+  apply_shift as(thrust::raw_pointer_cast(&dShifts[0]), keyLength);
+  
+  thrust::transform(text_copy.begin(),
+                    text_copy.end(),
+                    thrust::make_counting_iterator(0),
+                    text_clean.begin(),
+                    as);
+
 
   thrust::host_vector<unsigned char> h_plain_text = text_clean;
 
