@@ -119,6 +119,10 @@ std::vector<double> getLetterFrequencyGpu(
   // TODO calculate letter frequency
   
   thrust::device_vector<unsigned char> characters = text;
+  
+  // assume the text has all 26 letters
+  // find the number of occurence of each letter
+  
   thrust::device_vector<unsigned char> histogram_keys(26);
   thrust::device_vector<int> histogram_values(26);
   
@@ -135,6 +139,9 @@ std::vector<double> getLetterFrequencyGpu(
                           histogram_values.begin());
   
   int num_letters = endIterators.first - histogram_keys.begin();
+  
+  // sort the letters according to descending order of number of
+  // occurence of letters
   
   thrust::sort_by_key(histogram_values.begin(),
                       histogram_values.end(),
@@ -190,6 +197,7 @@ int main(int argc, char **argv) {
   ifs.close();
 
   thrust::device_vector<unsigned char> text_clean;
+  
   // TODO: sanitize input to contain only a-z lowercase (use the
   // isnot_lowercase_alpha functor), calculate the number of characters
   // in the cleaned text and put the result in text_clean, make sure to
@@ -199,13 +207,13 @@ int main(int argc, char **argv) {
   thrust::device_vector<unsigned char> d_text = text;
   text_clean.resize(d_text.size());
   
-  thrust::device_vector<unsigned char>::iterator it =
+  thrust::device_vector<unsigned char>::iterator endIterator =
     thrust::remove_copy_if(thrust::make_transform_iterator(d_text.begin(), upper_to_lower()),
                            thrust::make_transform_iterator(d_text.end(), upper_to_lower()),
                            text_clean.begin(),
                            isnot_lowercase_alpha());
   
-  numElements = it - text_clean.begin();
+  numElements = endIterator - text_clean.begin();
   
   text_clean.resize(numElements);
   
@@ -217,10 +225,11 @@ int main(int argc, char **argv) {
   PRINT_SUCCESS(success);
 
   thrust::device_vector<unsigned int> shifts(period);
+  
   // TODO fill in shifts using thrust random number generation (make sure
   // not to allow 0-shifts, this would make for rather poor encryption).
   
-  thrust::default_random_engine rng(123);
+  thrust::default_random_engine rng(123); // use seed of 123
   thrust::uniform_int_distribution<unsigned int> u_dist(1, 25);
   
   for (unsigned int i = 0; i < period; i++)

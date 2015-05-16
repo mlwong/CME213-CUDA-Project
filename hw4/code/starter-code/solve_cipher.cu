@@ -137,6 +137,7 @@ int main(int argc, char **argv) {
     strided_range<Iterator> it(text_copy.begin() + i, text_copy.end(), keyLength);
     thrust::sort(it.begin(), it.end());
     
+    // assume the strided text has 26 letters
     thrust::device_vector<unsigned char> histogram_keys(26);
     thrust::device_vector<int> histogram_values(26);
     
@@ -152,7 +153,7 @@ int main(int argc, char **argv) {
     
     int max_location = it_max - histogram_values.begin();
     
-    dShifts[i] = 4 - max_location;
+    dShifts[i] = 4 - max_location; // value of 'e' is 4
   }
 
   std::cout << "\nEncryption key: ";
