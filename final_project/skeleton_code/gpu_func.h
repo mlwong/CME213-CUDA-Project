@@ -45,4 +45,31 @@ inline double stop_timer(event_pair * p)
 
 int useless_gpu_add_one (int t);
 
+/*
+ * Algorithm 1 to use one thread to calculate each element in matrix D
+ * natively
+ */
+void gpu_GEMM_1(const double alpha,
+                const double beta,
+                const double* const mat_A,
+                const double* const mat_B,
+                const double* const mat_C,
+                double* mat_D,
+			    int m,
+			    int n,
+			    int l);
+
+/*
+ * Algorithm 2 to use a blocking algorithm and shared memory
+ */
+void gpu_GEMM_2(const double alpha,
+                const double beta,
+                const double* const mat_A,
+                const double* const mat_B,
+                const double* const mat_C,
+                double* mat_D,
+                int m,
+                int n,
+                int l);
+
 #endif

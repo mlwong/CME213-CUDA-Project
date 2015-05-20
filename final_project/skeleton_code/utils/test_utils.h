@@ -3,9 +3,10 @@
 
 #include <armadillo>
 
-#define IDX2C(i,j,ld) (((j)*(ld))+(i))
-#define MAX_ULPS_DIFF 512
+#include "../gpu_func.h"
 
+#define IDX2C(i,j,ld) (((j)*(ld))+(i))
+#define MAX_ULPS_DIFF 5120
 union Double_t
 {
 	Double_t (double num) : d(num) {}
@@ -68,6 +69,67 @@ bool almost_equal_matrix (const arma::mat& M,
 		}
 	}
 	return true;
+}
+
+/* Test the gpu_GEMM_1 function */
+bool test_gpu_GEMM_1(int m, int n, int l)
+{
+	double alpha = 2.0;
+	double beta = 3.0;
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (n,l);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l);
+	
+	D = alpha*A*B + beta*C;
+	
+	return almost_equal_matrix(D, D_gpu.memptr(), true);	
+}
+
+/* Test the gpu_GEMM_2 function */
+bool test_gpu_GEMM_2(int m, int n, int l)
+{
+	double alpha = 2.0;
+	double beta = 3.0;
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (n,l);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l);
+	
+	D = alpha*A*B + beta*C;
+	
+	double *d_gpu = D_gpu.memptr();
+	double *d_cpu = D.memptr();
+	
+	/*
+	std::cout << "D_cpu" << std::endl;
+	for (int i = 0; i < m; i++)
+	{
+		for (int j = 0; j < l; j++)
+		{
+			std::cout << d_cpu[j*m+i] << " ";
+		}
+		std::cout << std::endl;
+	}
+	
+	std::cout << "D_gpu" << std::endl;
+	for (int i = 0; i < m; i++)
+	{
+		for (int j = 0; j < l; j++)
+		{
+			std::cout << d_gpu[j*m+i] << " ";
+		}
+		std::cout << std::endl;
+	}
+	*/
+	
+	return almost_equal_matrix(D, D_gpu.memptr(), true);
 }
 
 #endif

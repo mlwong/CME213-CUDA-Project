@@ -31,6 +31,30 @@
     } } while(0)
 
 int main (int argc, char *argv[]) {
+	
+	// Test the gpu_GEMM function
+	if (test_gpu_GEMM_1(20, 10, 30))
+	{
+		std::cout << "The test on gpu_GEMM_1() passed!" << std::endl;
+	}
+	else
+	{
+		std::cerr << "The gpu_GEMM_1() function has bugs!" << std::endl;
+		exit(1);
+	}
+	
+	// Test the gpu_GEMM_1 function
+	if (test_gpu_GEMM_2(128, 128, 128))
+	{
+		std::cout << "The test on gpu_GEMM_2() passed!" << std::endl;
+	}
+	else
+	{
+		std::cerr << "The gpu_GEMM_2() function has bugs!" << std::endl;
+		exit(1);
+	}
+	
+	
 	// initialize
 	int num_procs = 0, rank = 0;
 	MPI_Init (&argc, &argv);
