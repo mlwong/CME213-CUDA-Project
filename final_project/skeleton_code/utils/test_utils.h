@@ -2,11 +2,13 @@
 #define UTILS_TEST_UTILS_H_
 
 #include <armadillo>
+#include <stdlib.h> 
+#include <timer.h>
 
 #include "../gpu_func.h"
 
 #define IDX2C(i,j,ld) (((j)*(ld))+(i))
-#define MAX_ULPS_DIFF 5120
+#define MAX_ULPS_DIFF 100000
 union Double_t
 {
 	Double_t (double num) : d(num) {}
@@ -74,8 +76,14 @@ bool almost_equal_matrix (const arma::mat& M,
 /* Test the gpu_GEMM_1 function */
 bool test_gpu_GEMM_1(int m, int n, int l)
 {
-	double alpha = 2.0;
-	double beta = 3.0;
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, C and D
 	arma::mat A = arma::randn (m,n);
 	arma::mat B = arma::randn (n,l);
 	arma::mat C = arma::randn (m,l);
@@ -86,14 +94,47 @@ bool test_gpu_GEMM_1(int m, int n, int l)
 	
 	D = alpha*A*B + beta*C;
 	
+	/*
+	double *mat_D_cpu = D.memptr();
+	double *mat_D_gpu = D_gpu.memptr();
+	
+	for (int i = 0; i < m; i++)
+	{
+		for (int j = 0; j < l; j++)
+		{
+			std::cout << mat_D_cpu[m*j + i] << " ";
+		}
+		std::cout << std::endl;
+	}
+	
+	std::cout << "GPU:" << std::endl;
+	std::cout << "GPU:" << std::endl;
+	std::cout << "GPU:" << std::endl;
+	
+	for (int i = 0; i < m; i++)
+	{
+		for (int j = 0; j < l; j++)
+		{
+			std::cout << mat_D_gpu[m*j + i] << " ";
+		}
+		std::cout << std::endl;
+	}
+	*/
+	
 	return almost_equal_matrix(D, D_gpu.memptr(), true);	
 }
 
 /* Test the gpu_GEMM_2 function */
 bool test_gpu_GEMM_2(int m, int n, int l)
 {
-	double alpha = 2.0;
-	double beta = 3.0;
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, C and D
 	arma::mat A = arma::randn (m,n);
 	arma::mat B = arma::randn (n,l);
 	arma::mat C = arma::randn (m,l);
@@ -106,28 +147,6 @@ bool test_gpu_GEMM_2(int m, int n, int l)
 	
 	double *d_gpu = D_gpu.memptr();
 	double *d_cpu = D.memptr();
-	
-	/*
-	std::cout << "D_cpu" << std::endl;
-	for (int i = 0; i < m; i++)
-	{
-		for (int j = 0; j < l; j++)
-		{
-			std::cout << d_cpu[j*m+i] << " ";
-		}
-		std::cout << std::endl;
-	}
-	
-	std::cout << "D_gpu" << std::endl;
-	for (int i = 0; i < m; i++)
-	{
-		for (int j = 0; j < l; j++)
-		{
-			std::cout << d_gpu[j*m+i] << " ";
-		}
-		std::cout << std::endl;
-	}
-	*/
 	
 	return almost_equal_matrix(D, D_gpu.memptr(), true);
 }

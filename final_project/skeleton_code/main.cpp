@@ -32,29 +32,6 @@
 
 int main (int argc, char *argv[]) {
 	
-	// Test the gpu_GEMM function
-	if (test_gpu_GEMM_1(20, 10, 30))
-	{
-		std::cout << "The test on gpu_GEMM_1() passed!" << std::endl;
-	}
-	else
-	{
-		std::cerr << "The gpu_GEMM_1() function has bugs!" << std::endl;
-		exit(1);
-	}
-	
-	// Test the gpu_GEMM_1 function
-	if (test_gpu_GEMM_2(128, 128, 128))
-	{
-		std::cout << "The test on gpu_GEMM_2() passed!" << std::endl;
-	}
-	else
-	{
-		std::cerr << "The gpu_GEMM_2() function has bugs!" << std::endl;
-		exit(1);
-	}
-	
-	
 	// initialize
 	int num_procs = 0, rank = 0;
 	MPI_Init (&argc, &argv);
@@ -69,7 +46,55 @@ int main (int argc, char *argv[]) {
 		 the number of MPI procs." << std::endl;
 	}
 	checkCudaErrors (cudaSetDevice(rank));
-
+	
+	// Test whether the GPU GEMM functions are implemented correctly
+	if (rank == 0)
+	{
+		// Test 1 on the gpu_GEMM function
+		if (test_gpu_GEMM_1(80, 70, 90))
+		{
+			std::cout << "The first test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The gpu_GEMM_1() function has bugs!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 2 on the gpu_GEMM function
+		if (test_gpu_GEMM_1(250, 400, 150))
+		{
+			std::cout << "The second test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The gpu_GEMM_1() function has bugs!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 1 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2(80, 70, 90))
+		{
+			std::cout << "The first test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The gpu_GEMM_2() function has bugs!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 2 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2(250, 400, 150))
+		{
+			std::cout << "The second test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The gpu_GEMM_2() function has bugs!" << std::endl;
+			exit(1);
+		}
+	}
+	
 	// reads in options
 	std::vector<int> H(3);
 	double reg = 1e-4;

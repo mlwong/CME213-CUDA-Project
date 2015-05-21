@@ -52,6 +52,53 @@ void feedforward (TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
   cache.a[1] = cache.yc = a2;
 }
 
+void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
+{
+    cache.z.resize(2);
+    cache.a.resize(2);
+    
+    // std::cout << W[0].n_rows << "\n";
+    assert (X.n_cols == nn.W[0].n_cols);
+    cache.X = X;
+    int N = X.n_rows;
+    
+    double *mat_X = cache.X.memptr();
+    arma::mat W_1_t = nn.W[0].t();
+    double *mat_W_1_t = W_1_t.memptr();
+    arma::mat b_1 = arma::repmat(nn.b[0], N, 1);
+    double *mat_b_1 = b_1.memptr();
+    arma::mat z1(X.n_rows, W_1_t.n_cols);
+    
+    gpu_GEMM_1(1.0, 1.0, mat_X, mat_W_1_t, mat_b_1, z1.memptr(), X.n_rows, X.n_cols, W_1_t.n_cols);
+    //arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
+    cache.z[0] = z1;
+    
+    // std::cout << "Computing a1 " << "\n";
+    arma::mat a1;
+    sigmoid (z1, a1);
+    cache.a[0] = a1;
+    
+    // std::cout << "Computing z2 " << "\n";
+    assert (a1.n_cols == nn.W[1].n_cols);
+    
+    double *mat_a1 = a1.memptr();
+    arma::mat W_2_t = nn.W[1].t();
+    double *mat_W_2_t = W_2_t.memptr();
+    arma::mat b_2 = arma::repmat(nn.b[1], N, 1);
+    double *mat_b_2 = b_2.memptr();
+    arma::mat z2(a1.n_rows, W_2_t.n_cols);
+    
+    gpu_GEMM_1(1.0, 1.0, mat_a1, mat_W_2_t, mat_b_2, z2.memptr(), a1.n_rows, a1.n_cols, W_2_t.n_cols);
+    //arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
+    cache.z[1] = z2;
+    
+    // std::cout << "Computing a2 " << "\n";
+    arma::mat a2;
+    softmax (z2, a2);
+    cache.a[1] = cache.yc = a2;
+}
+
+
 /*
  * Computes the gradients of the cost w.r.t each param.
  * MUST be called after feedforward since it uses the bpcache.
