@@ -69,7 +69,14 @@ void device_GEMM_1(const double alpha,
 	}
 	
 	// Each thread writes one element of matrix D
-	d_mat_D[idx] = alpha*sum + beta*d_mat_C[idx];
+	if (beta == 0.0)
+	{
+		d_mat_D[idx] = alpha*sum;
+	}
+	else
+	{
+		d_mat_D[idx] = alpha*sum + beta*d_mat_C[idx];
+	}
 }
 
 /*
@@ -233,7 +240,15 @@ void device_GEMM_2(const double alpha,
 	if (g_tid_x < m && g_tid_y < l)
 	{
 		int idx_D = m*block_size*bid_y + block_size*bid_x + tid_x + m*tid_y;
-		d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
+		
+		if (beta == 0.0)
+		{
+			d_mat_D[idx_D] = alpha*sum;
+		}
+		else
+		{
+			d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
+		}
 	}
 }
 
