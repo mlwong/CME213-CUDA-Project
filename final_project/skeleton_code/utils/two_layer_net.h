@@ -39,6 +39,7 @@ void train (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double lear
 void predict (TwoLayerNet &nn, const arma::mat& X, arma::mat& label);
 
 void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache);
+void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct cache& bpcache, struct grads& bpgrads);
 
 void parallel_train (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double learning_rate, double reg = 0.0, const int epochs = 15, const int batch_size = 800, bool grad_check = false, int print_every = -1);
 

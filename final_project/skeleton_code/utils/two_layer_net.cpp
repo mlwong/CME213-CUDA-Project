@@ -254,6 +254,8 @@ void train (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double lear
   int iter = 0;
 
   for (int epoch = 0 ; epoch < epochs; ++epoch) {
+    std::cout << "At epoch " << epoch << std::endl;
+    
     int num_batches = (int) ceil ( N / (float) batch_size);    
 
     for (int batch = 0; batch < num_batches; ++batch) {
@@ -286,7 +288,7 @@ void train (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double lear
       }
 
       iter++;
-    }
+    }    
   }    
 }
 
@@ -304,6 +306,19 @@ void parallel_train (TwoLayerNet &nn,
                      bool grad_check,
                      int print_every)
 {
+    /*
+     * Possible Implementation:
+     * 1. subdivide input batch of images and `MPI_scatter()' to each MPI node
+     * 2. compute each sub-batch of images' contribution to network coefficient updates
+     * 3. reduce the coefficient updates and broadcast to all nodes with `MPI_Allreduce()'
+     * 4. update local network coefficient at each node
+     */
+    
+    /* HINT: You can obtain a raw pointer to the memory used by Armadillo Matrices
+       for storing elements in a column major way. Or you can allocate your own array
+       memory space and store the elements in a row major way. Remember to update the
+       Armadillo matrices in TwoLayerNet &nn of rank 0 before returning from the function. */
+    
     int rank, num_procs;
     MPI_SAFE_CALL (MPI_Comm_size (MPI_COMM_WORLD, &num_procs));
     MPI_SAFE_CALL (MPI_Comm_rank (MPI_COMM_WORLD, &rank));
@@ -312,14 +327,11 @@ void parallel_train (TwoLayerNet &nn,
     int X_num_cols = (rank == 0)? X.n_cols : 0;
     int y_num_cols = (rank == 0)? y.n_cols : 0;
     
+    // Broadcast the number of rows of X, number of columns of y and number of columns of y
+    // to all nodes from rank 0
     MPI_SAFE_CALL (MPI_Bcast (&X_num_rows, 1, MPI_INT, 0, MPI_COMM_WORLD));
     MPI_SAFE_CALL (MPI_Bcast (&X_num_cols, 1, MPI_INT, 0, MPI_COMM_WORLD));
     MPI_SAFE_CALL (MPI_Bcast (&y_num_cols, 1, MPI_INT, 0, MPI_COMM_WORLD));
-    
-    /* HINT: You can obtain a raw pointer to the memory used by Armadillo Matrices
-       for storing elements in a column major way. Or you can allocate your own array
-       memory space and store the elements in a row major way. Remember to update the
-       Armadillo matrices in TwoLayerNet &nn of rank 0 before returning from the function. */
     
     /* Subdivide input into batches and send the batches to each MPI node from rank 0 */
     
@@ -327,7 +339,7 @@ void parallel_train (TwoLayerNet &nn,
     int batches_per_proc = (int) ceil (X_num_rows / (double) num_procs);
     
     int X_process_num_rows = std::min(batches_per_proc, X_num_rows - rank*batches_per_proc);
-    
+
     const double* mat_X = X.memptr();
     arma::mat X_process(batches_per_proc, X_num_cols);
     double* mat_X_process = X_process.memptr();
@@ -370,19 +382,15 @@ void parallel_train (TwoLayerNet &nn,
     
     y_process.resize(y_process_num_rows, y_num_cols);
     
+    int iter = 0.0;
+    
     for (int epoch = 0; epoch < epochs; ++epoch)
     {
+        std::cout << "At epoch " << epoch << std::endl;
+        
         int num_sub_batches = (batches_per_proc + batch_size - 1)/batch_size;
         for (int sub_batch = 0; sub_batch < num_sub_batches; sub_batch++)
-        {
-            /*
-             * Possible Implementation:
-             * 1. subdivide input batch of images and `MPI_scatter()' to each MPI node
-             * 2. compute each sub-batch of images' contribution to network coefficient updates
-             * 3. reduce the coefficient updates and broadcast to all nodes with `MPI_Allreduce()'
-             * 4. update local network coefficient at each node
-             */
-      
+        {      
             struct grads bpgrads_global_sum;
             bpgrads_global_sum.dW.resize(nn.W.size());
             bpgrads_global_sum.db.resize(nn.b.size());
@@ -406,10 +414,33 @@ void parallel_train (TwoLayerNet &nn,
                 arma::mat y_sub_batch = y_process.rows (sub_batch*batch_size, last_row);
                 
                 struct cache bpcache;
-                feedforward (nn, X_sub_batch, bpcache);
                 
-                backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
-              
+                gpu_feedforward (nn, X_sub_batch, bpcache);
+                //feedforward (nn, X_sub_batch, bpcache);
+                
+                gpu_backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
+                //backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
+                
+                if (print_every > 0 && iter % print_every == 0)
+                {
+                    if (grad_check)
+                    {
+                        struct grads numgrads;
+                        numgrad (nn, X_sub_batch, y_sub_batch, reg, numgrads);
+                        assert (gradcheck (numgrads, bpgrads));
+                    }
+                    std::cout << "Loss at iteration "
+                              << iter
+                              << " of epoch "
+                              << epoch
+                              << "/"
+                              << epochs
+                              << " of rank "
+                              << rank
+                              << " = "
+                              << loss(nn, bpcache.yc, y_sub_batch, reg)
+                              << "\n";
+                }
             }
             else
             {
@@ -458,6 +489,8 @@ void parallel_train (TwoLayerNet &nn,
             {
                 nn.b[i] -= learning_rate * bpgrads_global_sum.db[i];
             }
+            
+            iter++;
         }
     }
 }

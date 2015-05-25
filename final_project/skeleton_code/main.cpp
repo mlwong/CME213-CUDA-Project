@@ -48,6 +48,7 @@ int main (int argc, char *argv[]) {
 	checkCudaErrors (cudaSetDevice(rank));
 	
 	// Test whether the GPU GEMM functions are implemented correctly
+	/*
 	if (rank == 0)
 	{
 		// Test 1 on the gpu_GEMM function
@@ -94,6 +95,7 @@ int main (int argc, char *argv[]) {
 			exit(1);
 		}
 	}
+	*/
 	
 	// reads in options
 	std::vector<int> H(3);
@@ -168,7 +170,7 @@ int main (int argc, char *argv[]) {
 		TwoLayerNet seq_nn (H);
     	std::cout << "Start Sequential Training" << std::endl;
     	double start = MPI_Wtime();
-    	train (seq_nn, x_train, y_train, learning_rate, reg, num_epochs, batch_size, false, 1000);
+    	train (seq_nn, x_train, y_train, learning_rate, reg, num_epochs, batch_size, false, 1);
     	double end = MPI_Wtime();
     	std::cout << "Time for Sequential Training: " << end - start << " seconds" << std::endl;
     	arma::vec label_dev_pred;
@@ -183,7 +185,7 @@ int main (int argc, char *argv[]) {
     double start = MPI_Wtime();
     
   	/* ---- Parallel Training ---- */
-    parallel_train (nn, x_train, y_train, learning_rate, reg, num_epochs, batch_size, false, 1000);
+    parallel_train (nn, x_train, y_train, learning_rate, reg, num_epochs, batch_size, false, 1);
     
     double end = MPI_Wtime();
     if (rank == 0)
