@@ -48,54 +48,96 @@ int main (int argc, char *argv[]) {
 	checkCudaErrors (cudaSetDevice(rank));
 	
 	// Test whether the GPU GEMM functions are implemented correctly
-	/*
 	if (rank == 0)
 	{
-		// Test 1 on the gpu_GEMM function
-		if (test_gpu_GEMM_1(80, 70, 90))
+		// Test 1 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1a(80, 70, 90))
 		{
 			std::cout << "The first test on gpu_GEMM_1() passed!" << std::endl;
 		}
 		else
 		{
-			std::cerr << "The gpu_GEMM_1() function has bugs!" << std::endl;
+			std::cerr << "The first test on gpu_GEMM_1() didn't pass!" << std::endl;
 			exit(1);
 		}
 		
-		// Test 2 on the gpu_GEMM function
-		if (test_gpu_GEMM_1(250, 400, 150))
+		// Test 2 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1a(250, 400, 150))
 		{
 			std::cout << "The second test on gpu_GEMM_1() passed!" << std::endl;
 		}
 		else
 		{
-			std::cerr << "The gpu_GEMM_1() function has bugs!" << std::endl;
+			std::cerr << "The second test on gpu_GEMM_1() didn't pass!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 3 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1b(80, 70, 90))
+		{
+			std::cout << "The third test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The third test on gpu_GEMM_1() didn't pass!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 4 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1b(250, 400, 150))
+		{
+			std::cout << "The fourth test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The fourth test on gpu_GEMM_1() didn't pass!" << std::endl;
 			exit(1);
 		}
 		
 		// Test 1 on the gpu_GEMM_2 function
-		if (test_gpu_GEMM_2(80, 70, 90))
+		if (test_gpu_GEMM_2a(80, 70, 90))
 		{
 			std::cout << "The first test on gpu_GEMM_2() passed!" << std::endl;
 		}
 		else
 		{
-			std::cerr << "The gpu_GEMM_2() function has bugs!" << std::endl;
+			std::cerr << "The first test on gpu_GEMM_2() didn't passed" << std::endl;
 			exit(1);
 		}
 		
 		// Test 2 on the gpu_GEMM_2 function
-		if (test_gpu_GEMM_2(250, 400, 150))
+		if (test_gpu_GEMM_2a(250, 400, 150))
 		{
 			std::cout << "The second test on gpu_GEMM_2() passed!" << std::endl;
 		}
 		else
 		{
-			std::cerr << "The gpu_GEMM_2() function has bugs!" << std::endl;
+			std::cerr << "The second test on gpu_GEMM_2() didn't passed" << std::endl;
+			exit(1);
+		}
+		
+		// Test 3 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2b(80, 70, 90))
+		{
+			std::cout << "The third test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The third test on gpu_GEMM_2() didn't passed" << std::endl;
+			exit(1);
+		}
+		
+		// Test 4 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2b(250, 400, 150))
+		{
+			std::cout << "The fourth test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The fourth test on gpu_GEMM_2() didn't passed" << std::endl;
 			exit(1);
 		}
 	}
-	*/
 	
 	// reads in options
 	std::vector<int> H(3);

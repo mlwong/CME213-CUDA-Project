@@ -9,16 +9,16 @@
 
 struct grads 
 {
-  std::vector<arma::mat> dW;
-  std::vector<arma::rowvec> db;
+    std::vector<arma::mat> dW;
+    std::vector<arma::rowvec> db;
 };
 
 struct cache 
 {
-  arma::mat X;
-  std::vector<arma::mat> z;
-  std::vector<arma::mat> a;
-  arma::mat yc;
+    arma::mat X;
+    std::vector<arma::mat> z;
+    std::vector<arma::mat> a;
+    arma::mat yc;
 };
 
 /*
@@ -26,6 +26,12 @@ struct cache
  * and returns a new matrix.
  */
 void sigmoid (const arma::mat& mat, arma::mat& mat2);
+
+/*
+ * Applies the sigmoid function to each element of the matrix
+ * and returns a new matrix by GPU
+ */
+void gpu_sigmoid (const arma::mat& mat, arma::mat& mat2);
 
 /*
  * ReLU activation
@@ -36,6 +42,11 @@ void relu (const arma::mat& mat, arma::mat& mat2);
  * Applies the softmax to each rowvec of the matrix
  */
 void softmax (const arma::mat& mat, arma::mat& mat2);
+
+/*
+ * Applies the softmax to each rowvec of the matrix by GPU
+ */
+void gpu_softmax (const arma::mat& mat, arma::mat& mat2);
 
 /*
  * Performs gradient check by comparing numerical and analytical gradients.

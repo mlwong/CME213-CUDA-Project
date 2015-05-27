@@ -2,8 +2,8 @@
 
 #include <armadillo>
 #include "common.h"
-#include "../gpu_func.h"
 #include "mpi.h"
+#include "../gpu_func.h"
 
 #define MPI_SAFE_CALL( call ) do {                               \
     int err = call;                                              \
@@ -69,7 +69,7 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double* mat_b1 = b1.memptr();
     arma::mat z1(X.n_rows, W1_t.n_cols);
     
-    gpu_GEMM_1(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols);
+    gpu_GEMM_1(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols, false);
     //arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
     cache.z[0] = z1;
     
@@ -88,7 +88,7 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double *mat_b2 = b2.memptr();
     arma::mat z2(a1.n_rows, W2_t.n_cols);
     
-    gpu_GEMM_1(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols);
+    gpu_GEMM_1(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols, false);
     //arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
     cache.z[1] = z2;
     
@@ -145,7 +145,7 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
   double* mat_W2 = nn.W[1].memptr();
   bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
   double* mat_dW2 = bpgrads.dW[1].memptr();
-  gpu_GEMM_1(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols);
+  gpu_GEMM_1(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols, false);
   //bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
   
   bpgrads.db[1] = arma::sum (diff, 0);
@@ -153,7 +153,7 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
   arma::mat da1(diff.n_rows, nn.W[1].n_cols);
   double* mat_da1 = da1.memptr();
   double* mat_diff = diff.memptr();
-  gpu_GEMM_1(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols);
+  gpu_GEMM_1(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false);
   //arma::mat da1 = diff * nn.W[1];
 
   arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
@@ -164,7 +164,7 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
   double* mat_W1 = nn.W[0].memptr();
   bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
   double* mat_dW1 = bpgrads.dW[0].memptr();
-  gpu_GEMM_1(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols);
+  gpu_GEMM_1(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols, false);
   //bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
   
   bpgrads.db[0] = arma::sum(dz1, 0);
@@ -327,7 +327,7 @@ void parallel_train (TwoLayerNet &nn,
     int X_num_cols = (rank == 0)? X.n_cols : 0;
     int y_num_cols = (rank == 0)? y.n_cols : 0;
     
-    // Broadcast the number of rows of X, number of columns of y and number of columns of y
+    // Broadcast the number of rows of X, number of columns of X and number of columns of y
     // to all nodes from rank 0
     MPI_SAFE_CALL (MPI_Bcast (&X_num_rows, 1, MPI_INT, 0, MPI_COMM_WORLD));
     MPI_SAFE_CALL (MPI_Bcast (&X_num_cols, 1, MPI_INT, 0, MPI_COMM_WORLD));
@@ -407,6 +407,8 @@ void parallel_train (TwoLayerNet &nn,
             
             struct grads bpgrads;
             
+            // If the sub-batch is inside the sub-matrix X, do the GPU feedforward and backpop.
+            // Otherwise, there is no contribution to dW and dB from this process
             if (sub_batch*batch_size < X_process.n_rows)
             {
                 int last_row = std::min((sub_batch + 1)*batch_size - 1, X_process_num_rows - 1);
@@ -416,10 +418,10 @@ void parallel_train (TwoLayerNet &nn,
                 struct cache bpcache;
                 
                 gpu_feedforward (nn, X_sub_batch, bpcache);
-                //feedforward (nn, X_sub_batch, bpcache);
+                // feedforward (nn, X_sub_batch, bpcache);
                 
                 gpu_backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
-                //backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
+                // backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
                 
                 if (print_every > 0 && iter % print_every == 0)
                 {
@@ -455,7 +457,7 @@ void parallel_train (TwoLayerNet &nn,
                 }
             }
             
-            // Sum up dW and dB from all process by using MPI_Allreduce
+            // Sum up dW and dB from all processes by using MPI_Allreduce
             
             for (int i = 0; i < nn.W.size(); i++)
             {
@@ -479,7 +481,7 @@ void parallel_train (TwoLayerNet &nn,
                                   MPI_COMM_WORLD));
             }
             
-            // Gradient descent step
+            // Gradient descent step on the local neutral network of all the nodes
             for (int i = 0; i < nn.W.size(); i++)
             {
                 nn.W[i] -= learning_rate * bpgrads_global_sum.dW[i];
@@ -494,22 +496,3 @@ void parallel_train (TwoLayerNet &nn,
         }
     }
 }
-
-/*
-void parallel_train (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double learning_rate, double reg, 
-    const int epochs, const int batch_size, bool grad_check, int print_every)
-{
-  int rank, num_procs;
-  MPI_SAFE_CALL (MPI_Comm_size (MPI_COMM_WORLD, &num_procs));
-  MPI_SAFE_CALL (MPI_Comm_rank (MPI_COMM_WORLD, &rank));
-
-  int N = (rank == 0)?X.n_rows:0;
-  MPI_SAFE_CALL (MPI_Bcast (&N, 1, MPI_INT, 0, MPI_COMM_WORLD));
-  
-  for (int epoch = 0; epoch < epochs; ++epoch) {
-    int num_batches = (N + batch_size - 1)/batch_size;
-    for (int batch = 0; batch < num_batches; ++batch) {
-    }
-  }
-}
-*/
