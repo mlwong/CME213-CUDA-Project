@@ -94,6 +94,50 @@ int main (int argc, char *argv[]) {
 			exit(1);
 		}
 		
+		// Test 5 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1c(80, 70, 90))
+		{
+			std::cout << "The fifth test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The fifth test on gpu_GEMM_1() didn't pass!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 6 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1c(250, 400, 150))
+		{
+			std::cout << "The sixth test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The sixth test on gpu_GEMM_1() didn't pass!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 7 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1d(80, 70, 90))
+		{
+			std::cout << "The seventh test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The seventh test on gpu_GEMM_1() didn't pass!" << std::endl;
+			exit(1);
+		}
+		
+		// Test 8 on the gpu_GEMM_1 function
+		if (test_gpu_GEMM_1d(250, 400, 150))
+		{
+			std::cout << "The eighth test on gpu_GEMM_1() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The eighth test on gpu_GEMM_1() didn't pass!" << std::endl;
+			exit(1);
+		}
+		
 		// Test 1 on the gpu_GEMM_2 function
 		if (test_gpu_GEMM_2a(80, 70, 90))
 		{
@@ -135,6 +179,51 @@ int main (int argc, char *argv[]) {
 		else
 		{
 			std::cerr << "The fourth test on gpu_GEMM_2() didn't passed" << std::endl;
+			exit(1);
+		}
+		
+		// Test 5 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2c(80, 70, 90))
+		{
+			std::cout << "The fifth test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The fifth test on gpu_GEMM_2() didn't passed" << std::endl;
+			exit(1);
+		}
+		
+		// Test 6 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2c(250, 400, 150))
+		{
+			std::cout << "The sixth test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The sixth test on gpu_GEMM_2() didn't passed" << std::endl;
+			exit(1);
+		}
+		
+		
+		// Test 7 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2d(80, 70, 90))
+		{
+			std::cout << "The seventh test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The seventh test on gpu_GEMM_2() didn't passed" << std::endl;
+			exit(1);
+		}
+		
+		// Test 8 on the gpu_GEMM_2 function
+		if (test_gpu_GEMM_2d(250, 400, 150))
+		{
+			std::cout << "The eighth test on gpu_GEMM_2() passed!" << std::endl;
+		}
+		else
+		{
+			std::cerr << "The eighth test on gpu_GEMM_2() didn't passed" << std::endl;
 			exit(1);
 		}
 	}

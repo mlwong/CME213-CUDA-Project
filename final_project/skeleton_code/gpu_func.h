@@ -47,19 +47,20 @@ int useless_gpu_add_one (int t);
 
 /*
  * Algorithm 1 of general matrix-matrix multiplication (GEMM)
- * if boolean transpose is false,
- * GEMM operation is expressed as D = alpha*A*B + beta*C
- * otherwise, it is expressed as D = alpha*A^T*B + beta*C
+ * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
  * One thread is used to calculate one element in matrix D
  * natively
- * if transpose is false
- *  m: number of rows of A / number of rows of C/D
- *  n: number of columns of A / number of rows of B
- *  l: number of columns of B / number of columns of C/D
- * if transpose is true
- *  m: number of rows of A^T / number of rows of C/D
- *  n: number of columns of A^T / number of rows of B
- *  l: number of columns of B / number of columns of C/D
+ * 
+ * Parameters:
+ *  m:              Number of rows of op(A) / number of rows of C/D
+ *  n:              Number of columns of op(A) / number of rows of op(B)
+ *  l:              Number of columns of op(B) / number of columns of C/D
+ *  transpose_A:    Whether A should be transposed
+ *                  If transpose_A is false, op(A) = A
+ *                  Otherwise, op(A) = A^T
+ *  transpose_B:    Whether B should be transposed
+ *                  If transpose_B is false, op(B) = B
+ *                  Otherwise, op(B) = B^T
  */
 void gpu_GEMM_1 (const double alpha,
                  const double beta,
@@ -70,22 +71,24 @@ void gpu_GEMM_1 (const double alpha,
 			     const int m,
 			     const int n,
 			     const int l,
-                 const bool transpose);
+                 const bool transpose_A,
+                 const bool transpose_B);
 
 /*
  * Algorithm 2 of general matrix-matrix multiplication (GEMM)
- * if boolean transpose is false,
- * GEMM operation is expressed as D = alpha*A*B + beta*C
- * otherwise, it is expressed as D = alpha*A^T*B + beta*C
+ * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
  * Blocking algorithm and shared memory is used in this algorithm
- * if transpose is false
- *  m: number of rows of A / number of rows of C/D
- *  n: number of columns of A / number of rows of B
- *  l: number of columns of B / number of columns of C/D
- * if transpose is true
- *  m: number of rows of A^T / number of rows of C/D
- *  n: number of columns of A^T / number of rows of B
- *  l: number of columns of B / number of columns of C/D
+ * 
+ * Parameters:
+ *  m:              Number of rows of op(A) / number of rows of C/D
+ *  n:              Number of columns of op(A) / number of rows of op(B)
+ *  l:              Number of columns of op(B) / number of columns of C/D
+ *  transpose_A:    Whether A should be transposed
+ *                  If transpose_A is false, op(A) = A
+ *                  Otherwise, op(A) = A^T
+ *  transpose_B:    Whether B should be transposed
+ *                  If transpose_B is false, op(B) = B
+ *                  Otherwise, op(B) = B^T
  */
 void gpu_GEMM_2 (const double alpha,
                  const double beta,
@@ -96,7 +99,8 @@ void gpu_GEMM_2 (const double alpha,
                  const int m,
                  const int n,
                  const int l,
-                 const bool transpose);
+                 const bool transpose_A,
+                 const bool transpose_B);
 
 /*
  * Applies the sigmoid function to each element of the matrix

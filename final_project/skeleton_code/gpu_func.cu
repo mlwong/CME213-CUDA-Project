@@ -14,7 +14,6 @@ void device_add_one (int* d_result, int t)
 	*d_result = t + 1;
 }
 
-
 int useless_gpu_add_one (int t)
 {
 	int result;
@@ -45,7 +44,8 @@ void device_GEMM_1 (const double alpha,
 				    const int m,
 				    const int n,
 				    const int l,
-					const bool transpose)
+					const bool transpose_A,
+					const bool transpose_B)
 {
 	// Global thread index in the grid
 	const int tid_x = threadIdx.x + blockDim.x*blockIdx.x;
@@ -60,28 +60,54 @@ void device_GEMM_1 (const double alpha,
 	// Compute the index in matrix D
 	int idx = tid_y*m + tid_x;
 	
-	// sum is used to store the element of A * B or A^T * B
+	// sum is used to store the element of op(A)*op(B)
 	// that is computed by the thread
 	double sum = 0.0;
 	
-	if (transpose == false)
+	if (transpose_A == false)
 	{
-		for (int k = 0; k < n; k++)
+		if (transpose_B == false)
 		{
-			int idx_A = k*m + tid_x;
-			int idx_B = tid_y*n + k;
-			
-			sum += d_mat_A[idx_A]*d_mat_B[idx_B];
+			for (int k = 0; k < n; k++)
+			{
+				int idx_A = k*m + tid_x;
+				int idx_B = tid_y*n + k;
+				
+				sum += d_mat_A[idx_A]*d_mat_B[idx_B];
+			}
+		}
+		else
+		{
+			for (int k = 0; k < n; k++)
+			{
+				int idx_A = k*m + tid_x;
+				int idx_B = k*l + tid_y;
+				
+				sum += d_mat_A[idx_A]*d_mat_B[idx_B];
+			}
 		}
 	}
 	else
 	{
-		for (int k = 0; k < n; k++)
+		if (transpose_B == false)
 		{
-			int idx_A = tid_x*n + k;
-			int idx_B = tid_y*n + k;
-			
-			sum += d_mat_A[idx_A]*d_mat_B[idx_B];
+			for (int k = 0; k < n; k++)
+			{
+				int idx_A = tid_x*n + k;
+				int idx_B = tid_y*n + k;
+				
+				sum += d_mat_A[idx_A]*d_mat_B[idx_B];
+			}
+		}
+		else
+		{
+			for (int k = 0; k < n; k++)
+			{
+				int idx_A = tid_x*n + k;
+				int idx_B = k*l + tid_y;
+				
+				sum += d_mat_A[idx_A]*d_mat_B[idx_B];
+			}
 		}
 	}
 	
@@ -98,19 +124,20 @@ void device_GEMM_1 (const double alpha,
 
 /*
  * Algorithm 1 of general matrix-matrix multiplication (GEMM)
- * if boolean transpose is false,
- * GEMM operation is expressed as D = alpha*A*B + beta*C
- * otherwise, it is expressed as D = alpha*A^T*B + beta*C
+ * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
  * One thread is used to calculate one element in matrix D
  * natively
- * if transpose is false
- *  m: number of rows of A / number of rows of C/D
- *  n: number of columns of A / number of rows of B
- *  l: number of columns of B / number of columns of C/D
- * if transpose is true
- *  m: number of rows of A^T / number of rows of C/D
- *  n: number of columns of A^T / number of rows of B
- *  l: number of columns of B / number of columns of C/D
+ * 
+ * Parameters:
+ *  m:              Number of rows of op(A) / number of rows of C/D
+ *  n:              Number of columns of op(A) / number of rows of op(B)
+ *  l:              Number of columns of op(B) / number of columns of C/D
+ *  transpose_A:    Whether A should be transposed
+ *                  If transpose_A is false, op(A) = A
+ *                  Otherwise, op(A) = A^T
+ *  transpose_B:    Whether B should be transposed
+ *                  If transpose_B is false, op(B) = B
+ *                  Otherwise, op(B) = B^T
  */
 void gpu_GEMM_1 (const double alpha,
                  const double beta,
@@ -121,7 +148,8 @@ void gpu_GEMM_1 (const double alpha,
 			     const int m,
 			     const int n,
 			     const int l,
-				 const bool transpose)
+				 const bool transpose_A,
+				 const bool transpose_B)
 {
 	double *d_mat_A;
 	double *d_mat_B;
@@ -143,8 +171,8 @@ void gpu_GEMM_1 (const double alpha,
 	dim3 n_blocks(0, 0);
 	
 	// Set the size of each block
-	const int block_dim_x = 32;
-	const int block_dim_y = 8;
+	const int block_dim_x = 16;
+	const int block_dim_y = 16;
 	
 	// Compute the block dimension
 	n_threads.x = block_dim_x;
@@ -155,7 +183,17 @@ void gpu_GEMM_1 (const double alpha,
 	n_blocks.y = (l + n_threads.y - 1)/n_threads.y;
 	
 	// Launch the kernel
-	device_GEMM_1 <<<n_blocks, n_threads>>> (alpha, beta, d_mat_A, d_mat_B, d_mat_C, d_mat_D, m, n, l, transpose);
+	device_GEMM_1 <<<n_blocks, n_threads>>> (alpha,
+											 beta,
+											 d_mat_A,
+											 d_mat_B,
+											 d_mat_C,
+											 d_mat_D,
+											 m,
+											 n,
+											 l,
+											 transpose_A,
+											 transpose_B);
 	
 	// Copy data from the device memory to the host memory
 	checkCudaErrors(cudaMemcpy(mat_D, d_mat_D, m*l*sizeof(double), cudaMemcpyDeviceToHost));
@@ -179,7 +217,8 @@ void device_GEMM_2 (const double alpha,
 				    const int m,
 				    const int n,
 				    const int l,
-					const bool transpose)
+					const bool transpose_A,
+					const bool transpose_B)
 {
 	// Global thread index in the grid
 	const int g_tid_x = threadIdx.x + blockDim.x*blockIdx.x;
@@ -193,179 +232,333 @@ void device_GEMM_2 (const double alpha,
 	const int bid_x = blockIdx.x;
 	const int bid_y = blockIdx.y;
 	
-	if (transpose == false)
+	// Declaration of the shared memory used to store the
+	// sub-matrix of A/A^T
+	__shared__ double mat_A_shared[block_size+1][block_size+1];
+	
+	// Declaration of the shared memory used to store the
+	// sub-matrix of B/B^T
+	__shared__ double mat_B_shared[block_size+1][block_size+1];
+	
+	if (transpose_A == false)
 	{
-		// Index of the first sub-matrix of A processed by the block
-		int mat_A_begin = block_size*bid_x;
-		
-		// Step size used to iterate through the sub-matrices of A
-		int mat_A_step  = block_size*m;
-		
-		// Index of the first sub-matrix of B processed by the block
-		int mat_B_begin = n*block_size*bid_y;
-		
-		// Index of the last sub-matrix of B process by the blcok
-		int mat_B_end   = mat_B_begin + n - 1;
-		
-		// Step size used to iterate through the sub-matrices of B
-		int mat_B_step  = block_size;
-		
-		// sum is used to store the element of the block sub-matrix
-		// that is computed by the thread
-		double sum = 0.0;
-		
-		// Counter to record the current positions of column position
-		// of sub-matrix in matrix A and row position of sub-matrix
-		// in matrix B
-		int idx_A_col = 0;
-		int idx_B_row = 0; 
-		
-		// Loop over all the sub-matrices of A and B
-		// required to compute the block sub-matrix
-		for (int idx_A = mat_A_begin, idx_B = mat_B_begin;
-			 idx_B <= mat_B_end;
-			 idx_A += mat_A_step, idx_B += mat_B_step)
+		if (transpose_B == false)
 		{
-			// Declaration of the shared memory used to store the
-			// sub-matrix of A
-			__shared__ double mat_A_shared[block_size+1][block_size+1];
+			// Index of the first sub-matrix of A processed by the block
+			int mat_A_begin = block_size*bid_x;
 			
-			// Declaration of the shared memory used to store the
-			// sub-matrix of B
-			__shared__ double mat_B_shared[block_size+1][block_size+1];
+			// Step size used to iterate through the sub-matrices of A
+			int mat_A_step  = block_size*m;
 			
-			// Load the matrices from device memory to shared memory;
-			// Each threat loads one element of each sub-matrix
+			// Index of the first sub-matrix of B processed by the block
+			int mat_B_begin = n*block_size*bid_y;
 			
-			if (g_tid_x < m && tid_y + idx_A_col < n)
-				mat_A_shared[tid_x][tid_y] = d_mat_A[idx_A + m*tid_y + tid_x];
-			if (tid_x + idx_B_row < n && g_tid_y < l)
-				mat_B_shared[tid_x][tid_y] = d_mat_B[idx_B + n*tid_y + tid_x];
+			// Index of the last sub-matrix of B processed by the blcok
+			int mat_B_end   = mat_B_begin + n - 1;
 			
-			// Synchronize to make sure the matrices are loaded
-			__syncthreads();
+			// Step size used to iterate through the sub-matrices of B
+			int mat_B_step  = block_size;
 			
+			// sum is used to store the element of the block sub-matrix
+			// that is computed by the thread
+			double sum = 0.0;
+			
+			// Counter to record the current positions of column position
+			// of sub-matrix in matrix A and row position of sub-matrix
+			// in matrix B
+			int idx_A_col = 0;
+			int idx_B_row = 0; 
+			
+			// Loop over all the sub-matrices of A and B
+			// required to compute the block sub-matrix
+			for (int idx_A = mat_A_begin, idx_B = mat_B_begin;
+				 idx_B <= mat_B_end;
+				 idx_A += mat_A_step, idx_B += mat_B_step)
+			{
+				// Load the matrices from device memory to shared memory;
+				// Each thread loads one element of each sub-matrix
+				
+				if (g_tid_x < m && tid_y + idx_A_col < n)
+					mat_A_shared[tid_x][tid_y] = d_mat_A[idx_A + m*tid_y + tid_x];
+				if (tid_x + idx_B_row < n && g_tid_y < l)
+					mat_B_shared[tid_x][tid_y] = d_mat_B[idx_B + n*tid_y + tid_x];
+				
+				// Synchronize to make sure the matrices are loaded
+				__syncthreads();
+				
+				if (g_tid_x < m && g_tid_y < l)
+				{
+					int k_bound = min(block_size, n - idx_A_col);
+					
+					for (int k = 0; k < k_bound; k++)
+					{
+						sum += mat_A_shared[tid_x][k]*mat_B_shared[k][tid_y];
+					}
+				}
+				
+				idx_A_col += block_size;
+				idx_B_row += block_size;
+				
+				// Synchronize to make sure that the preceding computation
+				// is done before loading two new sub-matrices of A and B
+				// in the next iteration
+				__syncthreads();
+			}
+			
+			// Write the block sub-matrix to device memory
+			// each thread writes one element
 			if (g_tid_x < m && g_tid_y < l)
 			{
-				int k_bound = min(block_size, n - idx_A_col);
+				int idx_D = m*block_size*bid_y + block_size*bid_x + tid_x + m*tid_y;
 				
-				for (int k = 0; k < k_bound; k++)
+				if (beta == 0.0)
 				{
-					sum += mat_A_shared[tid_x][k]*mat_B_shared[k][tid_y];
-					//sum += mat_A_shared[tid_y][k]*mat_B_shared[k][tid_x];
+					d_mat_D[idx_D] = alpha*sum;
+				}
+				else
+				{
+					d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
 				}
 			}
-			
-			idx_A_col += block_size;
-			idx_B_row += block_size;
-			
-			// Synchronize to make sure that the preceding computation
-			// is done before loading two new sub-matrices of A and B
-			// in the next iteration
-			__syncthreads();
 		}
-		
-		// Write the block sub-matrix to device memory
-		// each thread writes one element
-		if (g_tid_x < m && g_tid_y < l)
+		else
 		{
-			int idx_D = m*block_size*bid_y + block_size*bid_x + tid_x + m*tid_y;
+			// Index of the first sub-matrix of A processed by the block
+			int mat_A_begin = block_size*bid_x;
 			
-			if (beta == 0.0)
-			{
-				d_mat_D[idx_D] = alpha*sum;
+			// Step size used to iterate through the sub-matrices of A
+			int mat_A_step  = block_size*m;
+			
+			// Index of the first sub-matrix of B^T processed by the block
+			int mat_B_t_begin = block_size*bid_y;
+			
+			// Index of the last sub-matrix of B^T processed by the blcok
+			int mat_B_t_end   = mat_B_t_begin + (n - 1)*l;
+			
+			// Step size used to iterate through the sub-matrices of B^T
+			int mat_B_t_step  = block_size*l;
+			
+			// sum is used to store the element of the block sub-matrix
+			// that is computed by the thread
+			double sum = 0.0;
+			
+			// Counter to record the current positions of column position
+			// of sub-matrix in matrix A and row position of sub-matrix
+			// in matrix B^T
+			int idx_A_col = 0;
+			int idx_B_t_row = 0; 
+			
+			// Loop over all the sub-matrices of A and B^T
+			// required to compute the block sub-matrix
+			for (int idx_A = mat_A_begin, idx_B_t = mat_B_t_begin;
+				 idx_B_t <= mat_B_t_end;
+				 idx_A += mat_A_step, idx_B_t += mat_B_t_step)
+			{				
+				// Load the matrices from device memory to shared memory;
+				// Each thread loads one element of each sub-matrix
+				
+				if (g_tid_x < m && tid_y + idx_A_col < n)
+					mat_A_shared[tid_x][tid_y] = d_mat_A[idx_A + m*tid_y + tid_x];
+				if (tid_x + idx_B_t_row < n && g_tid_y < l)
+					mat_B_shared[tid_x][tid_y] = d_mat_B[idx_B_t + l*tid_x + tid_y];
+				
+				// Synchronize to make sure the matrices are loaded
+				__syncthreads();
+				
+				if (g_tid_x < m && g_tid_y < l)
+				{
+					int k_bound = min(block_size, n - idx_A_col);
+					
+					for (int k = 0; k < k_bound; k++)
+					{
+						sum += mat_A_shared[tid_x][k]*mat_B_shared[k][tid_y];
+					}
+				}
+				
+				idx_A_col += block_size;
+				idx_B_t_row += block_size;
+				
+				// Synchronize to make sure that the preceding computation
+				// is done before loading two new sub-matrices of A and B^T
+				// in the next iteration
+				__syncthreads();
 			}
-			else
+			
+			// Write the block sub-matrix to device memory
+			// each thread writes one element
+			if (g_tid_x < m && g_tid_y < l)
 			{
-				d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
+				int idx_D = m*block_size*bid_y + block_size*bid_x + tid_x + m*tid_y;
+				
+				if (beta == 0.0)
+				{
+					d_mat_D[idx_D] = alpha*sum;
+				}
+				else
+				{
+					d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
+				}
 			}
 		}
 	}
 	else
 	{
-		// Index of the first sub-matrix of A^T processed by the block
-		int mat_A_t_begin = n*block_size*bid_x;
-		
-		// Step size used to iterate through the sub-matrices of A^T
-		int mat_A_t_step  = block_size;
-		
-		// Index of the first sub-matrix of B processed by the block
-		int mat_B_begin = n*block_size*bid_y;
-		
-		// Index of the last sub-matrix of B process by the blcok
-		int mat_B_end   = mat_B_begin + n - 1;
-		
-		// Step size used to iterate through the sub-matrices of B
-		int mat_B_step  = block_size;
-		
-		// sum is used to store the element of the block sub-matrix
-		// that is computed by the thread
-		double sum = 0.0;
-		
-		// Counter to record the current positions of column position
-		// of sub-matrix in matrix A and row position of sub-matrix
-		// in matrix B
-		int idx_A_t_col = 0;
-		int idx_B_row = 0; 
-		
-		// Loop over all the sub-matrices of A and B
-		// required to compute the block sub-matrix
-		for (int idx_A_t = mat_A_t_begin, idx_B = mat_B_begin;
-			 idx_B <= mat_B_end;
-			 idx_A_t += mat_A_t_step, idx_B += mat_B_step)
+		if (transpose_B == false)
 		{
-			// Declaration of the shared memory used to store the
-			// sub-matrix of A^T
-			__shared__ double mat_A_t_shared[block_size+1][block_size+1];
+			// Index of the first sub-matrix of A^T processed by the block
+			int mat_A_t_begin = n*block_size*bid_x;
 			
-			// Declaration of the shared memory used to store the
-			// sub-matrix of B
-			__shared__ double mat_B_shared[block_size+1][block_size+1];
+			// Step size used to iterate through the sub-matrices of A^T
+			int mat_A_t_step  = block_size;
 			
-			// Load the matrices from device memory to shared memory;
-			// Each threat loads one element of each sub-matrix
+			// Index of the first sub-matrix of B processed by the block
+			int mat_B_begin = n*block_size*bid_y;
 			
-			if (g_tid_x < m && tid_y + idx_A_t_col < n)
-				mat_A_t_shared[tid_x][tid_y] = d_mat_A[idx_A_t + n*tid_x + tid_y];
-			if (tid_x + idx_B_row < n && g_tid_y < l)
-				mat_B_shared[tid_x][tid_y] = d_mat_B[idx_B + n*tid_y + tid_x];
+			// Index of the last sub-matrix of B processed by the blcok
+			int mat_B_end   = mat_B_begin + n - 1;
 			
-			// Synchronize to make sure the matrices are loaded
-			__syncthreads();
+			// Step size used to iterate through the sub-matrices of B
+			int mat_B_step  = block_size;
 			
+			// sum is used to store the element of the block sub-matrix
+			// that is computed by the thread
+			double sum = 0.0;
+			
+			// Counter to record the current positions of column position
+			// of sub-matrix in matrix A^T and row position of sub-matrix
+			// in matrix B
+			int idx_A_t_col = 0;
+			int idx_B_row = 0; 
+			
+			// Loop over all the sub-matrices of A^T and B
+			// required to compute the block sub-matrix
+			for (int idx_A_t = mat_A_t_begin, idx_B = mat_B_begin;
+				 idx_B <= mat_B_end;
+				 idx_A_t += mat_A_t_step, idx_B += mat_B_step)
+			{
+				// Load the matrices from device memory to shared memory;
+				// Each thread loads one element of each sub-matrix
+				
+				if (g_tid_x < m && tid_y + idx_A_t_col < n)
+					mat_A_shared[tid_x][tid_y] = d_mat_A[idx_A_t + n*tid_x + tid_y];
+				if (tid_x + idx_B_row < n && g_tid_y < l)
+					mat_B_shared[tid_x][tid_y] = d_mat_B[idx_B + n*tid_y + tid_x];
+				
+				// Synchronize to make sure the matrices are loaded
+				__syncthreads();
+				
+				if (g_tid_x < m && g_tid_y < l)
+				{
+					int k_bound = min(block_size, n - idx_A_t_col);
+					
+					for (int k = 0; k < k_bound; k++)
+					{
+						sum += mat_A_shared[tid_x][k]*mat_B_shared[k][tid_y];
+					}
+				}
+				
+				idx_A_t_col += block_size;
+				idx_B_row += block_size;
+				
+				// Synchronize to make sure that the preceding computation
+				// is done before loading two new sub-matrices of A^T and B
+				// in the next iteration
+				__syncthreads();
+			}
+			
+			// Write the block sub-matrix to device memory
+			// each thread writes one element
 			if (g_tid_x < m && g_tid_y < l)
 			{
-				int k_bound = min(block_size, n - idx_A_t_col);
+				int idx_D = m*block_size*bid_y + block_size*bid_x + tid_x + m*tid_y;
 				
-				for (int k = 0; k < k_bound; k++)
+				if (beta == 0.0)
 				{
-					sum += mat_A_t_shared[tid_x][k]*mat_B_shared[k][tid_y];
-					//sum += mat_A_shared[tid_y][k]*mat_B_shared[k][tid_x];
+					d_mat_D[idx_D] = alpha*sum;
+				}
+				else
+				{
+					d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
 				}
 			}
-			
-			idx_A_t_col += block_size;
-			idx_B_row += block_size;
-			
-			// Synchronize to make sure that the preceding computation
-			// is done before loading two new sub-matrices of A and B
-			// in the next iteration
-			__syncthreads();
 		}
-		
-		// Write the block sub-matrix to device memory
-		// each thread writes one element
-		if (g_tid_x < m && g_tid_y < l)
+		else
 		{
-			int idx_D = m*block_size*bid_y + block_size*bid_x + tid_x + m*tid_y;
+			// Index of the first sub-matrix of A^T processed by the block
+			int mat_A_t_begin = n*block_size*bid_x;
 			
-			if (beta == 0.0)
-			{
-				d_mat_D[idx_D] = alpha*sum;
+			// Step size used to iterate through the sub-matrices of A^T
+			int mat_A_t_step  = block_size;
+			
+			// Index of the first sub-matrix of B^T processed by the block
+			int mat_B_t_begin = block_size*bid_y;
+			
+			// Index of the last sub-matrix of B^T processed by the blcok
+			int mat_B_t_end   = mat_B_t_begin + (n - 1)*l;
+			
+			// Step size used to iterate through the sub-matrices of B^T
+			int mat_B_t_step  = block_size*l;
+			
+			// sum is used to store the element of the block sub-matrix
+			// that is computed by the thread
+			double sum = 0.0;
+			
+			// Counter to record the current positions of column position
+			// of sub-matrix in matrix A^T and row position of sub-matrix
+			// in matrix B^T
+			int idx_A_t_col = 0;
+			int idx_B_t_row = 0; 
+			
+			// Loop over all the sub-matrices of A^T and B^T
+			// required to compute the block sub-matrix
+			for (int idx_A_t = mat_A_t_begin, idx_B_t = mat_B_t_begin;
+				 idx_B_t <= mat_B_t_end;
+				 idx_A_t += mat_A_t_step, idx_B_t += mat_B_t_step)
+			{				
+				// Load the matrices from device memory to shared memory;
+				// Each thread loads one element of each sub-matrix
+				
+				if (g_tid_x < m && tid_y + idx_A_t_col < n)
+					mat_A_shared[tid_x][tid_y] = d_mat_A[idx_A_t + n*tid_x + tid_y];
+				if (tid_x + idx_B_t_row < n && g_tid_y < l)
+					mat_B_shared[tid_x][tid_y] = d_mat_B[idx_B_t + l*tid_x + tid_y];
+				
+				// Synchronize to make sure the matrices are loaded
+				__syncthreads();
+				
+				if (g_tid_x < m && g_tid_y < l)
+				{
+					int k_bound = min(block_size, n - idx_A_t_col);
+					
+					for (int k = 0; k < k_bound; k++)
+					{
+						sum += mat_A_shared[tid_x][k]*mat_B_shared[k][tid_y];
+					}
+				}
+				
+				idx_A_t_col += block_size;
+				idx_B_t_row += block_size;
+				
+				// Synchronize to make sure that the preceding computation
+				// is done before loading two new sub-matrices of A^T and B^T
+				// in the next iteration
+				__syncthreads();
 			}
-			else
+			
+			// Write the block sub-matrix to device memory
+			// each thread writes one element
+			if (g_tid_x < m && g_tid_y < l)
 			{
-				d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
+				int idx_D = m*block_size*bid_y + block_size*bid_x + tid_x + m*tid_y;
+				
+				if (beta == 0.0)
+				{
+					d_mat_D[idx_D] = alpha*sum;
+				}
+				else
+				{
+					d_mat_D[idx_D] = alpha*sum + beta*d_mat_C[idx_D];
+				}
 			}
 		}
 	}
@@ -373,18 +566,19 @@ void device_GEMM_2 (const double alpha,
 
 /*
  * Algorithm 2 of general matrix-matrix multiplication (GEMM)
- * if boolean transpose is false,
- * GEMM operation is expressed as D = alpha*A*B + beta*C
- * otherwise, it is expressed as D = alpha*A^T*B + beta*C
+ * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
  * Blocking algorithm and shared memory is used in this algorithm
- * if transpose is false
- *  m: number of rows of A / number of rows of C/D
- *  n: number of columns of A / number of rows of B
- *  l: number of columns of B / number of columns of C/D
- * if transpose is true
- *  m: number of rows of A^T / number of rows of C/D
- *  n: number of columns of A^T / number of rows of B
- *  l: number of columns of B / number of columns of C/D
+ * 
+ * Parameters:
+ *  m:              Number of rows of op(A) / number of rows of C/D
+ *  n:              Number of columns of op(A) / number of rows of op(B)
+ *  l:              Number of columns of op(B) / number of columns of C/D
+ *  transpose_A:    Whether A should be transposed
+ *                  If transpose_A is false, op(A) = A
+ *                  Otherwise, op(A) = A^T
+ *  transpose_B:    Whether B should be transposed
+ *                  If transpose_B is false, op(B) = B
+ *                  Otherwise, op(B) = B^T
  */
 void gpu_GEMM_2 (const double alpha,
                  const double beta,
@@ -395,7 +589,8 @@ void gpu_GEMM_2 (const double alpha,
 			     const int m,
 			     const int n,
 			     const int l,
-				 const bool transpose)
+				 const bool transpose_A,
+				 const bool transpose_B)
 {
 	double *d_mat_A;
 	double *d_mat_B;
@@ -426,7 +621,17 @@ void gpu_GEMM_2 (const double alpha,
 	n_blocks.y = (l + n_threads.y - 1)/n_threads.y;
 	
 	// Launch the kernel
-	device_GEMM_2 <BLOCK_SIZE> <<<n_blocks, n_threads>>> (alpha, beta, d_mat_A, d_mat_B, d_mat_C, d_mat_D, m, n, l, transpose);
+	device_GEMM_2 <BLOCK_SIZE> <<<n_blocks, n_threads>>> (alpha,
+														  beta,
+														  d_mat_A,
+														  d_mat_B,
+														  d_mat_C,
+														  d_mat_D,
+														  m,
+														  n,
+														  l,
+														  transpose_A,
+														  transpose_B);
 	
 	// Copy data from the device memory to the host memory
 	checkCudaErrors(cudaMemcpy(mat_D, d_mat_D, m*l*sizeof(double), cudaMemcpyDeviceToHost));

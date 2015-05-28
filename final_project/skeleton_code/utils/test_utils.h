@@ -8,7 +8,7 @@
 #include "../gpu_func.h"
 
 #define IDX2C(i,j,ld) (((j)*(ld))+(i))
-#define MAX_ULPS_DIFF 1000000
+#define MAX_ULPS_DIFF 10000000
 union Double_t
 {
 	Double_t (double num) : d(num) {}
@@ -90,7 +90,7 @@ bool test_gpu_GEMM_1a(int m, int n, int l)
 	arma::mat D(m, l);
 	arma::mat D_gpu(m, l);
 	
-	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false);
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
 	
 	D = alpha*A*B + beta*C;
 	
@@ -116,9 +116,57 @@ bool test_gpu_GEMM_1b(int m, int n, int l)
 	arma::mat D(m, l);
 	arma::mat D_gpu(m, l);
 	
-	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true);
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
 	
 	D = alpha*A.t()*B + beta*C;
+
+	return almost_equal_matrix(D, D_gpu.memptr(), true);
+}
+
+/* Test the gpu_GEMM_1 function */
+bool test_gpu_GEMM_1c(int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, C and D
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	
+	D = alpha*A*B.t() + beta*C;
+
+	return almost_equal_matrix(D, D_gpu.memptr(), true);
+}
+
+/* Test the gpu_GEMM_1 function */
+bool test_gpu_GEMM_1d(int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, C and D
+	arma::mat A = arma::randn (n,m);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	
+	D = alpha*A.t()*B.t() + beta*C;
 
 	return almost_equal_matrix(D, D_gpu.memptr(), true);
 }
@@ -140,7 +188,7 @@ bool test_gpu_GEMM_2a(int m, int n, int l)
 	arma::mat D(m, l);
 	arma::mat D_gpu(m, l);
 	
-	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false);
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
 	
 	D = alpha*A*B + beta*C;
 	
@@ -164,9 +212,57 @@ bool test_gpu_GEMM_2b(int m, int n, int l)
 	arma::mat D(m, l);
 	arma::mat D_gpu(m, l);
 	
-	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true);
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
 	
 	D = alpha*A.t()*B + beta*C;
+	
+	return almost_equal_matrix(D, D_gpu.memptr(), true);
+}
+
+/* Test the gpu_GEMM_2 function */
+bool test_gpu_GEMM_2c(int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, C and D
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	
+	D = alpha*A*B.t() + beta*C;
+	
+	return almost_equal_matrix(D, D_gpu.memptr(), true);
+}
+
+/* Test the gpu_GEMM_2 function */
+bool test_gpu_GEMM_2d(int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, C and D
+	arma::mat A = arma::randn (n,m);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	
+	D = alpha*A.t()*B.t() + beta*C;
 	
 	return almost_equal_matrix(D, D_gpu.memptr(), true);
 }

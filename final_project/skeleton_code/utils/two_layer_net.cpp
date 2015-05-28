@@ -13,45 +13,92 @@
         exit(1);                                                 \
     } } while(0)
 
-double norms (TwoLayerNet &nn) {
-      double norm_sum = 0;
-
-      for (int i = 0; i < nn.num_layers; ++i)  {
+double norms (TwoLayerNet &nn)
+{
+    double norm_sum = 0;
+    
+    for (int i = 0; i < nn.num_layers; ++i)
+    {
         norm_sum += arma::accu (arma::square (nn.W[i]));
-      }
-
-      return norm_sum;
+    }
+    
+    return norm_sum;
 }
 
 void feedforward (TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
 {
-  cache.z.resize(2);
-  cache.a.resize(2);
-
-  // std::cout << W[0].n_rows << "\n";
-  assert (X.n_cols == nn.W[0].n_cols);
-  cache.X = X;
-  int N = X.n_rows;
-
-  arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
-  cache.z[0] = z1;
-
-  // std::cout << "Computing a1 " << "\n";
-  arma::mat a1;
-  sigmoid (z1, a1);
-  cache.a[0] = a1;
-
-  // std::cout << "Computing z2 " << "\n";
-  assert (a1.n_cols == nn.W[1].n_cols);
-  arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
-  cache.z[1] = z2;
-
-  // std::cout << "Computing a2 " << "\n";
-  arma::mat a2;
-  softmax (z2, a2);
-  cache.a[1] = cache.yc = a2;
+    cache.z.resize(2);
+    cache.a.resize(2);
+    
+    // std::cout << W[0].n_rows << "\n";
+    assert (X.n_cols == nn.W[0].n_cols);
+    cache.X = X;
+    int N = X.n_rows;
+    
+    arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
+    cache.z[0] = z1;
+    
+    // std::cout << "Computing a1 " << "\n";
+    arma::mat a1;
+    sigmoid (z1, a1);
+    cache.a[0] = a1;
+    
+    // std::cout << "Computing z2 " << "\n";
+    assert (a1.n_cols == nn.W[1].n_cols);
+    arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
+    cache.z[1] = z2;
+    
+    // std::cout << "Computing a2 " << "\n";
+    arma::mat a2;
+    softmax (z2, a2);
+    cache.a[1] = cache.yc = a2;
 }
 
+/*
+void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
+{
+    cache.z.resize(2);
+    cache.a.resize(2);
+    
+    // std::cout << W[0].n_rows << "\n";
+    assert (X.n_cols == nn.W[0].n_cols);
+    cache.X = X;
+    int N = X.n_rows;
+    
+    double* mat_X = cache.X.memptr();
+    double* mat_W1 = nn.W[0].memptr();
+    arma::mat b1 = arma::repmat(nn.b[0], N, 1);
+    double* mat_b1 = b1.memptr();
+    arma::mat z1(X.n_rows, nn.W[0].n_rows);
+    
+    gpu_GEMM_2(1.0, 1.0, mat_X, mat_W1, mat_b1, z1.memptr(), X.n_rows, X.n_cols, nn.W[0].n_rows, false, true);
+    //arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
+    cache.z[0] = z1;
+    
+    // std::cout << "Computing a1 " << "\n";
+    arma::mat a1;
+    sigmoid (z1, a1);
+    cache.a[0] = a1;
+    
+    // std::cout << "Computing z2 " << "\n";
+    assert (a1.n_cols == nn.W[1].n_cols);
+    
+    double* mat_a1 = a1.memptr();
+    double* mat_W2 = nn.W[1].memptr();
+    arma::mat b2 = arma::repmat(nn.b[1], N, 1);
+    double *mat_b2 = b2.memptr();
+    arma::mat z2(a1.n_rows, nn.W[1].n_rows);
+    
+    gpu_GEMM_2(1.0, 1.0, mat_a1, mat_W2, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, nn.W[1].n_rows, false, true);
+    //arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
+    cache.z[1] = z2;
+    
+    // std::cout << "Computing a2 " << "\n";
+    arma::mat a2;
+    softmax (z2, a2);
+    cache.a[1] = cache.yc = a2;
+}
+*/
 void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
 {
     cache.z.resize(2);
@@ -69,7 +116,7 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double* mat_b1 = b1.memptr();
     arma::mat z1(X.n_rows, W1_t.n_cols);
     
-    gpu_GEMM_1(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols, false);
+    gpu_GEMM_1(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols, false, false);
     //arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
     cache.z[0] = z1;
     
@@ -88,7 +135,7 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double *mat_b2 = b2.memptr();
     arma::mat z2(a1.n_rows, W2_t.n_cols);
     
-    gpu_GEMM_1(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols, false);
+    gpu_GEMM_1(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols, false, false);
     //arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
     cache.z[1] = z2;
     
@@ -107,20 +154,20 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
  */
 void backprop (TwoLayerNet &nn, const arma::mat& y, double reg, const struct cache& bpcache, struct grads& bpgrads)
 {
-  bpgrads.dW.resize(2);
-  bpgrads.db.resize(2);
-  int N = y.n_rows;
-
-  // std::cout << "backprop " << bpcache.yc << "\n";
-  arma::mat diff = (1.0 / N) * (bpcache.yc - y);
-  bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
-  bpgrads.db[1] = arma::sum (diff, 0);
-  arma::mat da1 = diff * nn.W[1];
-
-  arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
-
-  bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
-  bpgrads.db[0] = arma::sum(dz1, 0);
+    bpgrads.dW.resize(2);
+    bpgrads.db.resize(2);
+    int N = y.n_rows;
+    
+    // std::cout << "backprop " << bpcache.yc << "\n";
+    arma::mat diff = (1.0 / N) * (bpcache.yc - y);
+    bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
+    bpgrads.db[1] = arma::sum (diff, 0);
+    arma::mat da1 = diff * nn.W[1];
+    
+    arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
+    
+    bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
+    bpgrads.db[0] = arma::sum(dz1, 0);
 }
 
 /*
@@ -130,44 +177,81 @@ void backprop (TwoLayerNet &nn, const arma::mat& y, double reg, const struct cac
  * @params bpcache : Output of feedforward.
  * @params bpgrads: Returns the gradients for each param
  */
+/*
 void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct cache& bpcache, struct grads& bpgrads)
 {
-  bpgrads.dW.resize(2);
-  bpgrads.db.resize(2);
-  int N = y.n_rows;
-
-  // std::cout << "backprop " << bpcache.yc << "\n";
-  arma::mat diff = (1.0 / N) * (bpcache.yc - y);
-  
-  arma::mat diff_t = diff.t();
-  double* mat_diff_t = diff_t.memptr();
-  const double* mat_a1 = bpcache.a[0].memptr();
-  double* mat_W2 = nn.W[1].memptr();
-  bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
-  double* mat_dW2 = bpgrads.dW[1].memptr();
-  gpu_GEMM_1(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols, false);
-  //bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
-  
-  bpgrads.db[1] = arma::sum (diff, 0);
-  
-  arma::mat da1(diff.n_rows, nn.W[1].n_cols);
-  double* mat_da1 = da1.memptr();
-  double* mat_diff = diff.memptr();
-  gpu_GEMM_1(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false);
-  //arma::mat da1 = diff * nn.W[1];
-
-  arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
-
-  arma::mat dz1_t = dz1.t();
-  double* mat_dz1_t = dz1_t.memptr();
-  const double* mat_X = bpcache.X.memptr();
-  double* mat_W1 = nn.W[0].memptr();
-  bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
-  double* mat_dW1 = bpgrads.dW[0].memptr();
-  gpu_GEMM_1(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols, false);
-  //bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
-  
-  bpgrads.db[0] = arma::sum(dz1, 0);
+    bpgrads.dW.resize(2);
+    bpgrads.db.resize(2);
+    int N = y.n_rows;
+    
+    // std::cout << "backprop " << bpcache.yc << "\n";
+    arma::mat diff = (1.0 / N) * (bpcache.yc - y);
+    
+    const double* mat_a1 = bpcache.a[0].memptr();
+    double* mat_W2 = nn.W[1].memptr();
+    bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
+    double* mat_dW2 = bpgrads.dW[1].memptr();
+    gpu_GEMM_2(1.0, reg, diff.memptr(), mat_a1, mat_W2, mat_dW2, diff.n_cols, diff.n_rows, bpcache.a[0].n_cols, true, false);
+    //bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
+    
+    bpgrads.db[1] = arma::sum (diff, 0);
+    
+    arma::mat da1(diff.n_rows, nn.W[1].n_cols);
+    double* mat_da1 = da1.memptr();
+    double* mat_diff = diff.memptr();
+    gpu_GEMM_2(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false, false);
+    //arma::mat da1 = diff * nn.W[1];
+    
+    arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
+    
+    const double* mat_X = bpcache.X.memptr();
+    double* mat_W1 = nn.W[0].memptr();
+    bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
+    double* mat_dW1 = bpgrads.dW[0].memptr();
+    gpu_GEMM_2(1.0, reg, dz1.memptr(), mat_X, mat_W1, mat_dW1, dz1.n_cols, dz1.n_rows, bpcache.X.n_cols, true, false);
+    //bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
+    
+    bpgrads.db[0] = arma::sum(dz1, 0);
+}
+*/
+void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct cache& bpcache, struct grads& bpgrads)
+{
+    bpgrads.dW.resize(2);
+    bpgrads.db.resize(2);
+    int N = y.n_rows;
+    
+    // std::cout << "backprop " << bpcache.yc << "\n";
+    arma::mat diff = (1.0 / N) * (bpcache.yc - y);
+    
+    arma::mat diff_t = diff.t();
+    double* mat_diff_t = diff_t.memptr();
+    const double* mat_a1 = bpcache.a[0].memptr();
+    double* mat_W2 = nn.W[1].memptr();
+    bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
+    double* mat_dW2 = bpgrads.dW[1].memptr();
+    gpu_GEMM_1(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols, false, false);
+    //bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
+    
+    bpgrads.db[1] = arma::sum (diff, 0);
+    
+    arma::mat da1(diff.n_rows, nn.W[1].n_cols);
+    double* mat_da1 = da1.memptr();
+    double* mat_diff = diff.memptr();
+    gpu_GEMM_1(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false, false);
+    //arma::mat da1 = diff * nn.W[1];
+    
+    arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
+    
+    arma::mat dz1_t = dz1.t();
+    double* mat_dz1_t = dz1_t.memptr();
+    const double* mat_X = bpcache.X.memptr();
+    double* mat_W1 = nn.W[0].memptr();
+    bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
+    double* mat_dW1 = bpgrads.dW[0].memptr();
+    gpu_GEMM_1(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols, false, false);
+    //bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
+    
+    bpgrads.db[0] = arma::sum(dz1, 0);
 }
 
 /*
@@ -175,14 +259,14 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
  */
 double loss (TwoLayerNet &nn, const arma::mat& yc, const arma::mat& y, double reg)
 {
-  int N = yc.n_rows;
-  double ce_sum = -arma::accu (arma::log (yc.elem (arma::find (y == 1))));
-
-  double data_loss = ce_sum / N;
-  double reg_loss = 0.5 * reg * norms(nn);
-  double loss = data_loss + reg_loss;
-  // std::cout << "Loss: " << loss << "\n";
-  return loss;
+    int N = yc.n_rows;
+    double ce_sum = -arma::accu (arma::log (yc.elem (arma::find (y == 1))));
+    
+    double data_loss = ce_sum / N;
+    double reg_loss = 0.5 * reg * norms(nn);
+    double loss = data_loss + reg_loss;
+    // std::cout << "Loss: " << loss << "\n";
+    return loss;
 }
 
 /*
@@ -190,15 +274,16 @@ double loss (TwoLayerNet &nn, const arma::mat& yc, const arma::mat& y, double re
  */
 void predict (TwoLayerNet &nn, const arma::mat& X, arma::mat& label)
 {
-  struct cache fcache;
-  feedforward (nn, X, fcache);
-  label.set_size (X.n_rows);
-
-  for (int i = 0; i < X.n_rows; ++i) {
-    arma::uword row, col;
-    fcache.yc.row(i).max (row, col);
-    label(i) = col;
-  }
+    struct cache fcache;
+    feedforward (nn, X, fcache);
+    label.set_size (X.n_rows);
+    
+    for (int i = 0; i < X.n_rows; ++i)
+    {
+        arma::uword row, col;
+        fcache.yc.row(i).max (row, col);
+        label(i) = col;
+    }
 }
 
 /* 
@@ -206,42 +291,42 @@ void predict (TwoLayerNet &nn, const arma::mat& X, arma::mat& label)
  */
 void numgrad (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double reg, struct grads& numgrads)
 {
-  double h = 0.00001;
-  struct cache numcache;
-  numgrads.dW.resize(nn.num_layers);
-  numgrads.db.resize(nn.num_layers);
-
-  for (int i = 0; i < nn.num_layers; ++i) {
-    numgrads.dW[i].resize (nn.W[i].n_rows, nn.W[i].n_cols);
-    for (int j = 0; j < nn.W[i].n_rows; ++j) {
-      for (int k = 0; k < nn.W[i].n_cols; ++k) {
-        double oldval = nn.W[i](j,k);
-        nn.W[i](j, k) = oldval + h;
-        feedforward (nn, X, numcache);
-        double fxph = loss (nn, numcache.yc, y, reg);
-        nn.W[i](j, k) = oldval - h;
-        feedforward (nn, X, numcache);
-        double fxnh = loss (nn, numcache.yc, y, reg);
-        numgrads.dW[i](j, k) = (fxph - fxnh) / (2*h);
-        nn.W[i](j, k) = oldval;
+    double h = 0.00001;
+    struct cache numcache;
+    numgrads.dW.resize(nn.num_layers);
+    numgrads.db.resize(nn.num_layers);
+    
+    for (int i = 0; i < nn.num_layers; ++i) {
+      numgrads.dW[i].resize (nn.W[i].n_rows, nn.W[i].n_cols);
+      for (int j = 0; j < nn.W[i].n_rows; ++j) {
+        for (int k = 0; k < nn.W[i].n_cols; ++k) {
+          double oldval = nn.W[i](j,k);
+          nn.W[i](j, k) = oldval + h;
+          feedforward (nn, X, numcache);
+          double fxph = loss (nn, numcache.yc, y, reg);
+          nn.W[i](j, k) = oldval - h;
+          feedforward (nn, X, numcache);
+          double fxnh = loss (nn, numcache.yc, y, reg);
+          numgrads.dW[i](j, k) = (fxph - fxnh) / (2*h);
+          nn.W[i](j, k) = oldval;
+        }
       }
     }
-  }
-
-   for (int i = 0; i < nn.num_layers; ++i) {
-    numgrads.db[i].resize (nn.b[i].n_rows, nn.b[i].n_cols);
-    for (int j = 0; j < nn.b[i].size(); ++j) {
-      double oldval = nn.b[i](j);
-      nn.b[i](j) = oldval + h;
-      feedforward (nn, X, numcache);
-      double fxph = loss (nn, numcache.yc, y, reg);
-      nn.b[i](j) = oldval - h;
-      feedforward (nn, X, numcache);
-      double fxnh = loss (nn, numcache.yc, y, reg);
-      numgrads.db[i](j) = (fxph - fxnh) / (2*h);
-      nn.b[i](j) = oldval;
+    
+    for (int i = 0; i < nn.num_layers; ++i) {
+     numgrads.db[i].resize (nn.b[i].n_rows, nn.b[i].n_cols);
+     for (int j = 0; j < nn.b[i].size(); ++j) {
+       double oldval = nn.b[i](j);
+       nn.b[i](j) = oldval + h;
+       feedforward (nn, X, numcache);
+       double fxph = loss (nn, numcache.yc, y, reg);
+       nn.b[i](j) = oldval - h;
+       feedforward (nn, X, numcache);
+       double fxnh = loss (nn, numcache.yc, y, reg);
+       numgrads.db[i](j) = (fxph - fxnh) / (2*h);
+       nn.b[i](j) = oldval;
+     }
     }
-  }
 }
 
 /*
@@ -335,23 +420,22 @@ void parallel_train (TwoLayerNet &nn,
     
     /* Subdivide input into batches and send the batches to each MPI node from rank 0 */
     
-    // Compute the number of batches in each MPI process
-    int batches_per_proc = (int) ceil (X_num_rows / (double) num_procs);
-    
-    int X_process_num_rows = std::min(batches_per_proc, X_num_rows - rank*batches_per_proc);
+    // Compute the number of inputs (number of rows of X) for each MPI process
+    int num_inputs_per_proc = (int) ceil (X_num_rows / (double) num_procs);
+    int X_process_num_rows = std::min(num_inputs_per_proc, X_num_rows - rank*num_inputs_per_proc);
 
     const double* mat_X = X.memptr();
-    arma::mat X_process(batches_per_proc, X_num_cols);
+    arma::mat X_process(num_inputs_per_proc, X_num_cols);
     double* mat_X_process = X_process.memptr();
     
     for (int i = 0; i < X_num_cols; i++)
     {
         MPI_SAFE_CALL(
             MPI_Scatter(mat_X + i*X_num_rows,
-                        batches_per_proc,
+                        num_inputs_per_proc,
                         MPI_DOUBLE,
-                        mat_X_process + i*batches_per_proc,
-                        batches_per_proc,
+                        mat_X_process + i*num_inputs_per_proc,
+                        num_inputs_per_proc,
                         MPI_DOUBLE,
                         0,
                         MPI_COMM_WORLD));
@@ -364,17 +448,17 @@ void parallel_train (TwoLayerNet &nn,
     int y_process_num_rows = X_process_num_rows;
     
     const double* mat_y = y.memptr();
-    arma::mat y_process(batches_per_proc, y_num_cols);
+    arma::mat y_process(num_inputs_per_proc, y_num_cols);
     double* mat_y_process = y_process.memptr();
     
     for (int i = 0; i < y_num_cols; i++)
     {
         MPI_SAFE_CALL(
             MPI_Scatter(mat_y + i*X_num_rows,
-                        batches_per_proc,
+                        num_inputs_per_proc,
                         MPI_DOUBLE,
-                        mat_y_process + i*batches_per_proc,
-                        batches_per_proc,
+                        mat_y_process + i*num_inputs_per_proc,
+                        num_inputs_per_proc,
                         MPI_DOUBLE,
                         0,
                         MPI_COMM_WORLD));
@@ -386,9 +470,14 @@ void parallel_train (TwoLayerNet &nn,
     
     for (int epoch = 0; epoch < epochs; ++epoch)
     {
-        std::cout << "At epoch " << epoch << std::endl;
+        if (rank == 0)
+        {
+            std::cout << "At epoch " << epoch << std::endl;
+        }
         
-        int num_sub_batches = (batches_per_proc + batch_size - 1)/batch_size;
+        int sub_batch_size = (batch_size + num_procs - 1)/num_procs;
+        
+        int num_sub_batches = (num_inputs_per_proc + sub_batch_size - 1)/sub_batch_size;
         for (int sub_batch = 0; sub_batch < num_sub_batches; sub_batch++)
         {      
             struct grads bpgrads_global_sum;
@@ -409,11 +498,11 @@ void parallel_train (TwoLayerNet &nn,
             
             // If the sub-batch is inside the sub-matrix X, do the GPU feedforward and backpop.
             // Otherwise, there is no contribution to dW and dB from this process
-            if (sub_batch*batch_size < X_process.n_rows)
+            if (sub_batch*sub_batch_size < X_process.n_rows)
             {
-                int last_row = std::min((sub_batch + 1)*batch_size - 1, X_process_num_rows - 1);
-                arma::mat X_sub_batch = X_process.rows (sub_batch*batch_size, last_row);
-                arma::mat y_sub_batch = y_process.rows (sub_batch*batch_size, last_row);
+                int last_row = std::min((sub_batch + 1)*sub_batch_size - 1, X_process_num_rows - 1);
+                arma::mat X_sub_batch = X_process.rows (sub_batch*sub_batch_size, last_row);
+                arma::mat y_sub_batch = y_process.rows (sub_batch*sub_batch_size, last_row);
                 
                 struct cache bpcache;
                 
