@@ -54,51 +54,6 @@ void feedforward (TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     cache.a[1] = cache.yc = a2;
 }
 
-/*
-void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
-{
-    cache.z.resize(2);
-    cache.a.resize(2);
-    
-    // std::cout << W[0].n_rows << "\n";
-    assert (X.n_cols == nn.W[0].n_cols);
-    cache.X = X;
-    int N = X.n_rows;
-    
-    double* mat_X = cache.X.memptr();
-    double* mat_W1 = nn.W[0].memptr();
-    arma::mat b1 = arma::repmat(nn.b[0], N, 1);
-    double* mat_b1 = b1.memptr();
-    arma::mat z1(X.n_rows, nn.W[0].n_rows);
-    
-    gpu_GEMM_2(1.0, 1.0, mat_X, mat_W1, mat_b1, z1.memptr(), X.n_rows, X.n_cols, nn.W[0].n_rows, false, true);
-    //arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
-    cache.z[0] = z1;
-    
-    // std::cout << "Computing a1 " << "\n";
-    arma::mat a1;
-    sigmoid (z1, a1);
-    cache.a[0] = a1;
-    
-    // std::cout << "Computing z2 " << "\n";
-    assert (a1.n_cols == nn.W[1].n_cols);
-    
-    double* mat_a1 = a1.memptr();
-    double* mat_W2 = nn.W[1].memptr();
-    arma::mat b2 = arma::repmat(nn.b[1], N, 1);
-    double *mat_b2 = b2.memptr();
-    arma::mat z2(a1.n_rows, nn.W[1].n_rows);
-    
-    gpu_GEMM_2(1.0, 1.0, mat_a1, mat_W2, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, nn.W[1].n_rows, false, true);
-    //arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
-    cache.z[1] = z2;
-    
-    // std::cout << "Computing a2 " << "\n";
-    arma::mat a2;
-    softmax (z2, a2);
-    cache.a[1] = cache.yc = a2;
-}
-*/
 void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
 {
     cache.z.resize(2);
@@ -116,8 +71,8 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double* mat_b1 = b1.memptr();
     arma::mat z1(X.n_rows, W1_t.n_cols);
     
-    gpu_GEMM_1(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols, false, false);
-    //arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
+    gpu_GEMM_2(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols, false, false);
+    // arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
     cache.z[0] = z1;
     
     // std::cout << "Computing a1 " << "\n";
@@ -135,8 +90,8 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double *mat_b2 = b2.memptr();
     arma::mat z2(a1.n_rows, W2_t.n_cols);
     
-    gpu_GEMM_1(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols, false, false);
-    //arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
+    gpu_GEMM_2(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols, false, false);
+    // arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
     cache.z[1] = z2;
     
     // std::cout << "Computing a2 " << "\n";
@@ -177,43 +132,6 @@ void backprop (TwoLayerNet &nn, const arma::mat& y, double reg, const struct cac
  * @params bpcache : Output of feedforward.
  * @params bpgrads: Returns the gradients for each param
  */
-/*
-void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct cache& bpcache, struct grads& bpgrads)
-{
-    bpgrads.dW.resize(2);
-    bpgrads.db.resize(2);
-    int N = y.n_rows;
-    
-    // std::cout << "backprop " << bpcache.yc << "\n";
-    arma::mat diff = (1.0 / N) * (bpcache.yc - y);
-    
-    const double* mat_a1 = bpcache.a[0].memptr();
-    double* mat_W2 = nn.W[1].memptr();
-    bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
-    double* mat_dW2 = bpgrads.dW[1].memptr();
-    gpu_GEMM_2(1.0, reg, diff.memptr(), mat_a1, mat_W2, mat_dW2, diff.n_cols, diff.n_rows, bpcache.a[0].n_cols, true, false);
-    //bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
-    
-    bpgrads.db[1] = arma::sum (diff, 0);
-    
-    arma::mat da1(diff.n_rows, nn.W[1].n_cols);
-    double* mat_da1 = da1.memptr();
-    double* mat_diff = diff.memptr();
-    gpu_GEMM_2(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false, false);
-    //arma::mat da1 = diff * nn.W[1];
-    
-    arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
-    
-    const double* mat_X = bpcache.X.memptr();
-    double* mat_W1 = nn.W[0].memptr();
-    bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
-    double* mat_dW1 = bpgrads.dW[0].memptr();
-    gpu_GEMM_2(1.0, reg, dz1.memptr(), mat_X, mat_W1, mat_dW1, dz1.n_cols, dz1.n_rows, bpcache.X.n_cols, true, false);
-    //bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
-    
-    bpgrads.db[0] = arma::sum(dz1, 0);
-}
-*/
 void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct cache& bpcache, struct grads& bpgrads)
 {
     bpgrads.dW.resize(2);
@@ -229,15 +147,15 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
     double* mat_W2 = nn.W[1].memptr();
     bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
     double* mat_dW2 = bpgrads.dW[1].memptr();
-    gpu_GEMM_1(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols, false, false);
-    //bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
+    gpu_GEMM_2(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols, false, false);
+    // bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
     
     bpgrads.db[1] = arma::sum (diff, 0);
     
     arma::mat da1(diff.n_rows, nn.W[1].n_cols);
     double* mat_da1 = da1.memptr();
     double* mat_diff = diff.memptr();
-    gpu_GEMM_1(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false, false);
+    gpu_GEMM_2(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false, false);
     //arma::mat da1 = diff * nn.W[1];
     
     arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
@@ -248,8 +166,8 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
     double* mat_W1 = nn.W[0].memptr();
     bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
     double* mat_dW1 = bpgrads.dW[0].memptr();
-    gpu_GEMM_1(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols, false, false);
-    //bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
+    gpu_GEMM_2(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols, false, false);
+    // bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
     
     bpgrads.db[0] = arma::sum(dz1, 0);
 }
@@ -297,84 +215,106 @@ void numgrad (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double re
     numgrads.db.resize(nn.num_layers);
     
     for (int i = 0; i < nn.num_layers; ++i) {
-      numgrads.dW[i].resize (nn.W[i].n_rows, nn.W[i].n_cols);
-      for (int j = 0; j < nn.W[i].n_rows; ++j) {
-        for (int k = 0; k < nn.W[i].n_cols; ++k) {
-          double oldval = nn.W[i](j,k);
-          nn.W[i](j, k) = oldval + h;
-          feedforward (nn, X, numcache);
-          double fxph = loss (nn, numcache.yc, y, reg);
-          nn.W[i](j, k) = oldval - h;
-          feedforward (nn, X, numcache);
-          double fxnh = loss (nn, numcache.yc, y, reg);
-          numgrads.dW[i](j, k) = (fxph - fxnh) / (2*h);
-          nn.W[i](j, k) = oldval;
+        numgrads.dW[i].resize (nn.W[i].n_rows, nn.W[i].n_cols);
+        for (int j = 0; j < nn.W[i].n_rows; ++j) {
+            for (int k = 0; k < nn.W[i].n_cols; ++k) {
+                double oldval = nn.W[i](j,k);
+                nn.W[i](j, k) = oldval + h;
+                feedforward (nn, X, numcache);
+                double fxph = loss (nn, numcache.yc, y, reg);
+                nn.W[i](j, k) = oldval - h;
+                feedforward (nn, X, numcache);
+                double fxnh = loss (nn, numcache.yc, y, reg);
+                numgrads.dW[i](j, k) = (fxph - fxnh) / (2*h);
+                nn.W[i](j, k) = oldval;
+            }
         }
-      }
     }
     
     for (int i = 0; i < nn.num_layers; ++i) {
-     numgrads.db[i].resize (nn.b[i].n_rows, nn.b[i].n_cols);
-     for (int j = 0; j < nn.b[i].size(); ++j) {
-       double oldval = nn.b[i](j);
-       nn.b[i](j) = oldval + h;
-       feedforward (nn, X, numcache);
-       double fxph = loss (nn, numcache.yc, y, reg);
-       nn.b[i](j) = oldval - h;
-       feedforward (nn, X, numcache);
-       double fxnh = loss (nn, numcache.yc, y, reg);
-       numgrads.db[i](j) = (fxph - fxnh) / (2*h);
-       nn.b[i](j) = oldval;
-     }
+        numgrads.db[i].resize (nn.b[i].n_rows, nn.b[i].n_cols);
+        for (int j = 0; j < nn.b[i].size(); ++j) {
+            double oldval = nn.b[i](j);
+            nn.b[i](j) = oldval + h;
+            feedforward (nn, X, numcache);
+            double fxph = loss (nn, numcache.yc, y, reg);
+            nn.b[i](j) = oldval - h;
+            feedforward (nn, X, numcache);
+            double fxnh = loss (nn, numcache.yc, y, reg);
+            numgrads.db[i](j) = (fxph - fxnh) / (2*h);
+            nn.b[i](j) = oldval;
+        }
     }
 }
 
 /*
  * Train the neural network &nn
  */
-void train (TwoLayerNet &nn, const arma::mat& X, const arma::mat& y, double learning_rate, double reg, 
-    const int epochs, const int batch_size, bool grad_check, int print_every)
+void train (TwoLayerNet &nn,
+            const arma::mat& X,
+            const arma::mat& y,
+            double learning_rate,
+            double reg,
+            const int epochs,
+            const int batch_size,
+            bool grad_check,
+            int print_every)
 {
-  int N = X.n_rows;
-  int iter = 0;
-
-  for (int epoch = 0 ; epoch < epochs; ++epoch) {
-    std::cout << "At epoch " << epoch << std::endl;
-    
-    int num_batches = (int) ceil ( N / (float) batch_size);    
-
-    for (int batch = 0; batch < num_batches; ++batch) {
-      int last_row = std::min ((batch + 1)*batch_size, N-1);
-      arma::mat X_batch = X.rows (batch * batch_size, last_row);
-      arma::mat y_batch = y.rows (batch * batch_size, last_row);
-
-      struct cache bpcache;
-      feedforward (nn, X_batch, bpcache);
-      
-      struct grads bpgrads;
-      backprop (nn, y_batch, reg, bpcache, bpgrads);
-
-      if (print_every > 0 && iter % print_every == 0) {
-       if (grad_check) {
-          struct grads numgrads;
-          numgrad (nn, X_batch, y_batch, reg, numgrads);
-          assert (gradcheck (numgrads, bpgrads));
+    int N = X.n_rows;
+    int iter = 0;
+    for (int epoch = 0; epoch < epochs; ++epoch)
+    {
+        std::cout << "At epoch " << epoch << std::endl;
+        
+        int num_batches = (int) ceil ( N / (float) batch_size);
+        
+        for (int batch = 0; batch < num_batches; ++batch)
+        {
+            int last_row = std::min ((batch + 1)*batch_size-1, N-1);
+            arma::mat X_batch = X.rows (batch * batch_size, last_row);
+            arma::mat y_batch = y.rows (batch * batch_size, last_row);
+          
+            struct cache bpcache;
+            feedforward (nn, X_batch, bpcache);
+          
+            struct grads bpgrads;
+            backprop (nn, y_batch, reg, bpcache, bpgrads);
+          
+            if (print_every > 0 && iter % print_every == 0)
+            {
+                if (grad_check)
+                {
+                    struct grads numgrads;
+                    numgrad (nn, X_batch, y_batch, reg, numgrads);
+                    assert (gradcheck (numgrads, bpgrads));
+                }
+                std::cout << "Loss at iter "
+                          << iter
+                          << " and batch "
+                          << batch
+                          << " of epoch "
+                          << epoch
+                          << "/"
+                          << epochs-1
+                          << " = "
+                          << loss (nn, bpcache.yc, y_batch, reg)
+                          << "\n";
+            }
+          
+            // Gradient descent step
+            for (int i = 0; i < nn.W.size(); ++i)
+            {
+                nn.W[i] -= learning_rate * bpgrads.dW[i];
+            }
+          
+            for (int i = 0; i < nn.b.size(); ++i)
+            {
+                nn.b[i] -= learning_rate * bpgrads.db[i];
+            }
+          
+            iter++;
         }
-        std::cout << "Loss at iteration " << iter << " of epoch " << epoch << "/" << epochs << " = " << loss (nn, bpcache.yc, y_batch, reg) << "\n";
-      }
-
-      // Gradient descent step
-      for (int i = 0; i < nn.W.size(); ++i) {
-        nn.W[i] -= learning_rate * bpgrads.dW[i];
-      }
-
-      for (int i = 0; i < nn.b.size(); ++i) {
-        nn.b[i] -= learning_rate * bpgrads.db[i];
-      }
-
-      iter++;
-    }    
-  }    
+    }
 }
 
 /*
@@ -573,12 +513,12 @@ void parallel_train (TwoLayerNet &nn,
             // Gradient descent step on the local neutral network of all the nodes
             for (int i = 0; i < nn.W.size(); i++)
             {
-                nn.W[i] -= learning_rate * bpgrads_global_sum.dW[i];
+                nn.W[i] -= learning_rate / num_procs * bpgrads_global_sum.dW[i];
             }
             
             for (int i = 0; i < nn.b.size(); i++)
             {
-                nn.b[i] -= learning_rate * bpgrads_global_sum.db[i];
+                nn.b[i] -= learning_rate / num_procs * bpgrads_global_sum.db[i];
             }
             
             iter++;

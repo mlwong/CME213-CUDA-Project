@@ -5,6 +5,7 @@
 #include <stdlib.h> 
 #include <timer.h>
 
+#include "common.h"
 #include "../gpu_func.h"
 
 #define IDX2C(i,j,ld) (((j)*(ld))+(i))
@@ -73,8 +74,78 @@ bool almost_equal_matrix (const arma::mat& M,
 	return true;
 }
 
-/* Test the gpu_GEMM_1 function */
-bool test_gpu_GEMM_1a(int m, int n, int l)
+/* Test the gpu_sigmoid function */
+void test_gpu_sigmoid (int m, int n)
+{
+	// Generate random values for matrices A
+	arma::mat A = arma::randn (m,n);
+	arma::mat B(m,n);
+	arma::mat B_gpu(m,n);
+	
+	double start, end;
+	
+	start = MPI_Wtime();
+	sigmoid (A, B);
+	end = MPI_Wtime();
+	std::cout << "  CPU sigmoid speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_sigmoid (A.memptr(), B_gpu.memptr(), m, n);
+	end = MPI_Wtime();
+	std::cout << "  gpu_sigmoid() speed: " << end - start << std::endl;
+	
+	if (almost_equal_matrix(B, B_gpu.memptr(), true))
+	{
+		std::cout << "  Test on gpu_sigmoid() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_sigmoid() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+		exit(1);
+	}
+}
+
+/* Test the gpu_softmax function */
+void test_gpu_softmax (int m, int n)
+{
+	// Generate random values for matrices A
+	arma::mat A = arma::randn (m,n);
+	arma::mat B(m,n);
+	arma::mat B_gpu(m,n);
+	
+	double start, end;
+	
+	start = MPI_Wtime();
+	softmax (A, B);
+	end = MPI_Wtime();
+	std::cout << "  CPU softmax speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_softmax (A.memptr(), B_gpu.memptr(), m, n);
+	end = MPI_Wtime();
+	std::cout << "  gpu_softmax() speed: " << end - start << std::endl;
+	
+	if (almost_equal_matrix(B, B_gpu.memptr(), true))
+	{
+		std::cout << "  Test on gpu_softmax() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_softmax() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_0 function */
+void test_gpu_GEMM_0a (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -83,7 +154,183 @@ bool test_gpu_GEMM_1a(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (n,l);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
+	
+	D = alpha*A*B + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_0() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_0 function */
+void test_gpu_GEMM_0b (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (n,m);
+	arma::mat B = arma::randn (n,l);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
+	
+	D = alpha*A.t()*B + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_0() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_0 function */
+void test_gpu_GEMM_0c (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	
+	D = alpha*A*B.t() + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_0() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_0 function */
+void test_gpu_GEMM_0d (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (n,m);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	
+	D = alpha*A.t()*B.t() + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_0() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_1 function */
+void test_gpu_GEMM_1a (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (m,n);
 	arma::mat B = arma::randn (n,l);
 	arma::mat C = arma::randn (m,l);
@@ -94,13 +341,31 @@ bool test_gpu_GEMM_1a(int m, int n, int l)
 	
 	D = alpha*A*B + beta*C;
 	
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
-	
-
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_1() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
 }
 
 /* Test the gpu_GEMM_1 function */
-bool test_gpu_GEMM_1b(int m, int n, int l)
+void test_gpu_GEMM_1b (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -109,7 +374,7 @@ bool test_gpu_GEMM_1b(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (n,m);
 	arma::mat B = arma::randn (n,l);
 	arma::mat C = arma::randn (m,l);
@@ -120,11 +385,31 @@ bool test_gpu_GEMM_1b(int m, int n, int l)
 	
 	D = alpha*A.t()*B + beta*C;
 
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_1() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
 }
 
 /* Test the gpu_GEMM_1 function */
-bool test_gpu_GEMM_1c(int m, int n, int l)
+void test_gpu_GEMM_1c (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -133,7 +418,7 @@ bool test_gpu_GEMM_1c(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (m,n);
 	arma::mat B = arma::randn (l,n);
 	arma::mat C = arma::randn (m,l);
@@ -144,11 +429,31 @@ bool test_gpu_GEMM_1c(int m, int n, int l)
 	
 	D = alpha*A*B.t() + beta*C;
 
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_1() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
 }
 
 /* Test the gpu_GEMM_1 function */
-bool test_gpu_GEMM_1d(int m, int n, int l)
+void test_gpu_GEMM_1d (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -157,7 +462,7 @@ bool test_gpu_GEMM_1d(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (n,m);
 	arma::mat B = arma::randn (l,n);
 	arma::mat C = arma::randn (m,l);
@@ -168,11 +473,31 @@ bool test_gpu_GEMM_1d(int m, int n, int l)
 	
 	D = alpha*A.t()*B.t() + beta*C;
 
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_1() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
 }
 
 /* Test the gpu_GEMM_2 function */
-bool test_gpu_GEMM_2a(int m, int n, int l)
+void test_gpu_GEMM_2a (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -181,7 +506,7 @@ bool test_gpu_GEMM_2a(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (m,n);
 	arma::mat B = arma::randn (n,l);
 	arma::mat C = arma::randn (m,l);
@@ -192,11 +517,31 @@ bool test_gpu_GEMM_2a(int m, int n, int l)
 	
 	D = alpha*A*B + beta*C;
 	
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_2() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
 }
 
 /* Test the gpu_GEMM_2 function */
-bool test_gpu_GEMM_2b(int m, int n, int l)
+void test_gpu_GEMM_2b (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -205,7 +550,7 @@ bool test_gpu_GEMM_2b(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (n,m);
 	arma::mat B = arma::randn (n,l);
 	arma::mat C = arma::randn (m,l);
@@ -216,11 +561,31 @@ bool test_gpu_GEMM_2b(int m, int n, int l)
 	
 	D = alpha*A.t()*B + beta*C;
 	
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_2() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
 }
 
 /* Test the gpu_GEMM_2 function */
-bool test_gpu_GEMM_2c(int m, int n, int l)
+void test_gpu_GEMM_2c (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -229,7 +594,7 @@ bool test_gpu_GEMM_2c(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (m,n);
 	arma::mat B = arma::randn (l,n);
 	arma::mat C = arma::randn (m,l);
@@ -240,11 +605,31 @@ bool test_gpu_GEMM_2c(int m, int n, int l)
 	
 	D = alpha*A*B.t() + beta*C;
 	
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_2() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
 }
 
 /* Test the gpu_GEMM_2 function */
-bool test_gpu_GEMM_2d(int m, int n, int l)
+void test_gpu_GEMM_2d (int m, int n, int l)
 {
 	// Generate random values for alpha and beta
 	// between -1.0 to 1.0
@@ -253,7 +638,7 @@ bool test_gpu_GEMM_2d(int m, int n, int l)
 	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
 	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
 	
-	// Generate random values for matrices A, B, C and D
+	// Generate random values for matrices A, B, and C
 	arma::mat A = arma::randn (n,m);
 	arma::mat B = arma::randn (l,n);
 	arma::mat C = arma::randn (m,l);
@@ -264,7 +649,361 @@ bool test_gpu_GEMM_2d(int m, int n, int l)
 	
 	D = alpha*A.t()*B.t() + beta*C;
 	
-	return almost_equal_matrix(D, D_gpu.memptr(), true);
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_2() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_3 function */
+void test_gpu_GEMM_3a (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (n,l);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
+	
+	D = alpha*A*B + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_3() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_3 function */
+void test_gpu_GEMM_3b (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (n,m);
+	arma::mat B = arma::randn (n,l);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
+	
+	D = alpha*A.t()*B + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_3() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = false"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_3 function */
+void test_gpu_GEMM_3c (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	
+	D = alpha*A*B.t() + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_3() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = false, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the gpu_GEMM_3 function */
+void test_gpu_GEMM_3d (int m, int n, int l)
+{
+	// Generate random values for alpha and beta
+	// between -1.0 to 1.0
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (n,m);
+	arma::mat B = arma::randn (l,n);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m, l);
+	arma::mat D_gpu(m, l);
+	
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	
+	D = alpha*A.t()*B.t() + beta*C;
+	
+	if (almost_equal_matrix(D, D_gpu.memptr(), true))
+	{
+		
+		std::cout << "  Test on gpu_GEMM_3() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << ", "
+				  << "l = " << l << ", "
+				  << "transpose_A = true, transpose_B = true"
+				  << std::endl;
+				  
+		exit(1);
+	}
+}
+
+/* Test the speed of different GPU GEMM functions*/
+void test_speed_GEMM (int m, int n, int l)
+{
+	
+	std::cout << "  Matrices dimensions: m = "
+			  << m
+			  << ", n = "
+			  << n
+			  << ", l = "
+			  << n
+			  << std::endl;
+	
+	std::cout << std::endl;
+			  
+	double start, end;
+	
+	srand(time(NULL));
+	
+	double alpha =  (double) (rand() % 2000) / 1000.0 - 1.0; 
+	double beta  =  (double) (rand() % 2000) / 1000.0 - 1.0;
+	
+	std::cout << "  For transpose_A = false, transpose_B = false: " << std::endl;
+	
+	// Generate random values for matrices A, B, and C
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (n,l);
+	arma::mat C = arma::randn (m,l);
+	arma::mat D(m,l);
+	arma::mat D_gpu(m,l);
+	
+	start = MPI_Wtime();
+	D = alpha*A*B + beta*C;
+	end = MPI_Wtime();
+	std::cout << "  CPU GEMM speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_0() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_1() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_2() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_3() speed: " << end - start << std::endl;
+	
+	std::cout << std::endl;
+	
+	std::cout << "  For transpose_A = true, transpose_B = false: " << std::endl;
+	
+	// Generate random values for matrices A, B and C
+	A = arma::randn (n,m);
+	B = arma::randn (n,l);
+	C = arma::randn (m,l);
+	
+	start = MPI_Wtime();
+	D = alpha*A.t()*B + beta*C;
+	end = MPI_Wtime();
+	std::cout << "  CPU GEMM speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_0() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_1() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_2() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, false);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_3() speed: " << end - start << std::endl;
+	
+	std::cout << std::endl;
+	
+	std::cout << "  For transpose_A = false, transpose_B = true: " << std::endl;
+	
+	// Generate random values for matrices A, B and C
+	A = arma::randn (m,n);
+	B = arma::randn (l,n);
+	C = arma::randn (m,l);
+	
+	start = MPI_Wtime();
+	D = alpha*A.t()*B + beta*C;
+	end = MPI_Wtime();
+	std::cout << "  CPU GEMM speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_0() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_1() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_2() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, false, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_3() speed: " << end - start << std::endl;
+	
+	std::cout << std::endl;
+	
+	std::cout << "  For transpose_A = true, transpose_B = true: " << std::endl;
+	
+	// Generate random values for matrices A, B and C
+	A = arma::randn (n,m);
+	B = arma::randn (l,n);
+	C = arma::randn (m,l);
+	
+	start = MPI_Wtime();
+	D = alpha*A.t()*B.t() + beta*C;
+	end = MPI_Wtime();
+	std::cout << "  CPU GEMM speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_0(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_0() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_1(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_1() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_2(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_2() speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_GEMM_3(alpha, beta, A.memptr(), B.memptr(), C.memptr(), D_gpu.memptr(), m, n, l, true, true);
+	end = MPI_Wtime();
+	std::cout << "  gpu_GEMM_3() speed: " << end - start << std::endl;
 }
 
 #endif

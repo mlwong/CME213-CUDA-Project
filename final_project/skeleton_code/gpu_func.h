@@ -46,10 +46,40 @@ inline double stop_timer(event_pair * p)
 int useless_gpu_add_one (int t);
 
 /*
+ * Algorithm 0 of general matrix-matrix multiplication (GEMM)
+ * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
+ * One thread is used to calculate one element in matrix D
+ * 1D blocks are used
+ * natively
+ * 
+ * Parameters:
+ *  m:              Number of rows of op(A) / number of rows of C/D
+ *  n:              Number of columns of op(A) / number of rows of op(B)
+ *  l:              Number of columns of op(B) / number of columns of C/D
+ *  transpose_A:    Whether A should be transposed
+ *                  If transpose_A is false, op(A) = A
+ *                  Otherwise, op(A) = A^T
+ *  transpose_B:    Whether B should be transposed
+ *                  If transpose_B is false, op(B) = B
+ *                  Otherwise, op(B) = B^T
+ */
+void gpu_GEMM_0 (const double alpha,
+                 const double beta,
+                 const double* const mat_A,
+                 const double* const mat_B,
+                 const double* const mat_C,
+                 double* mat_D,
+			     const int m,
+			     const int n,
+			     const int l,
+				 const bool transpose_A,
+				 const bool transpose_B);
+
+/*
  * Algorithm 1 of general matrix-matrix multiplication (GEMM)
  * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
  * One thread is used to calculate one element in matrix D
- * natively
+ * natively. 2D blocks are used
  * 
  * Parameters:
  *  m:              Number of rows of op(A) / number of rows of C/D
@@ -103,23 +133,52 @@ void gpu_GEMM_2 (const double alpha,
                  const bool transpose_B);
 
 /*
+ * Algorithm 3 of general matrix-matrix multiplication (GEMM)
+ * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
+ * A better blocking algorithm and shared memory is used in this algorithm
+ * 
+ * Parameters:
+ *  m:              Number of rows of op(A) / number of rows of C/D
+ *  n:              Number of columns of op(A) / number of rows of op(B)
+ *  l:              Number of columns of op(B) / number of columns of C/D
+ *  transpose_A:    Whether A should be transposed
+ *                  If transpose_A is false, op(A) = A
+ *                  Otherwise, op(A) = A^T
+ *  transpose_B:    Whether B should be transposed
+ *                  If transpose_B is false, op(B) = B
+ *                  Otherwise, op(B) = B^T
+ */
+void gpu_GEMM_3 (const double alpha,
+                 const double beta,
+                 const double* const mat_A,
+                 const double* const mat_B,
+                 const double* const mat_C,
+                 double* mat_D,
+			     const int m,
+			     const int n,
+			     const int l,
+				 const bool transpose_A,
+				 const bool transpose_B);
+
+/*
  * Applies the sigmoid function to each element of the matrix
  * and returns a new matrix by GPU
  *  m: number of rows of the matrix
  *  n: number of columns of the matrix
  */
-void cuda_sigmoid (const double* const mat_1,
-                   double* mat_2,
-                   const int m,
-                   const int n);
+void gpu_sigmoid (const double* const mat_1,
+                  double* mat_2,
+                  const int m,
+                  const int n);
 /*
- * Applies the softmax to each rowvec of the matrix by GPU
+ * Applies the softmax function to each row vector of the matrix
+ * and returns a new matrix by GPU
  *  m: number of rows of the matrix
  *  n: number of columns of the matrix
  */
-void cuda_softmax (const double* const mat_1,
-                   double* mat_2,
-                   const int m,
-                   const int n);
+void gpu_softmax (const double* const mat_1,
+                  double* mat_2,
+                  const int m,
+                  const int n);
 
 #endif

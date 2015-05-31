@@ -28,12 +28,6 @@ struct cache
 void sigmoid (const arma::mat& mat, arma::mat& mat2);
 
 /*
- * Applies the sigmoid function to each element of the matrix
- * and returns a new matrix by GPU
- */
-void gpu_sigmoid (const arma::mat& mat, arma::mat& mat2);
-
-/*
  * ReLU activation
  */
 void relu (const arma::mat& mat, arma::mat& mat2);
@@ -42,11 +36,6 @@ void relu (const arma::mat& mat, arma::mat& mat2);
  * Applies the softmax to each rowvec of the matrix
  */
 void softmax (const arma::mat& mat, arma::mat& mat2);
-
-/*
- * Applies the softmax to each rowvec of the matrix by GPU
- */
-void gpu_softmax (const arma::mat& mat, arma::mat& mat2);
 
 /*
  * Performs gradient check by comparing numerical and analytical gradients.

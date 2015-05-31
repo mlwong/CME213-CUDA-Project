@@ -20,20 +20,6 @@ void softmax (const arma::mat& mat, arma::mat& mat2)
     mat2 = exp_mat / repmat(sum_exp_mat, 1, mat.n_cols);
 }
 
-void gpu_sigmoid (const arma::mat& mat, arma::mat& mat2)
-{
-    mat2.set_size (mat.n_rows, mat.n_cols);
-    ASSERT_MAT_SAME_SIZE (mat, mat2);
-    cuda_sigmoid (mat.memptr(), mat2.memptr(), mat.n_rows, mat.n_cols);
-}
-
-void gpu_softmax (const arma::mat& mat, arma::mat& mat2)
-{
-    mat2.set_size (mat.n_rows, mat.n_cols);
-    ASSERT_MAT_SAME_SIZE (mat, mat2);
-    cuda_softmax (mat.memptr(), mat2.memptr(), mat.n_rows, mat.n_cols);
-}
-
 /* 
  * Returns the relative error between two matrices.
  */
