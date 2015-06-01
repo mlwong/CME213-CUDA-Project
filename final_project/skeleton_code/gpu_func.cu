@@ -31,6 +31,10 @@
 // Block size used in reduction
 #define BLOCK_SIZE_REDUCTION 32
 
+// Block size used in elementwise multiplication
+#define BLOCK_SIZE_x_elementwise_mult 64
+#define BLOCK_SIZE_y_elementwise_mult 8
+
 __global__
 void device_add_one (int* d_result, int t)
 {
@@ -1447,4 +1451,507 @@ void gpu_softmax (const double* const mat_1,
 	cudaFree(d_mat_1);
 	cudaFree(d_mat_2);
 	cudaFree(d_sums);
+}
+
+// Kernel to do reduction along columns
+template<int block_size>
+__global__
+void device_sum_col_block(const double* const d_mat,
+						  double* d_row_vec,
+						  const int m,
+						  const int n)
+{
+	// Local thead index and block index
+	const int tid_x = threadIdx.x;
+	const int bid_y = blockIdx.y;
+	
+	double my_sum = 0.0;
+	for (int i = tid_x; i < m; i += block_size)
+	{
+		// Compute the index in the matrix
+		int idx = (threadIdx.y + blockDim.y*blockIdx.y)*m + i;
+		my_sum += d_mat[idx];
+	}
+	
+	__shared__ double smem[block_size];
+	
+	smem[tid_x] = my_sum;
+
+	__syncthreads();
+	
+	//use this for non-power of 2 block_sizes
+	for (int shift = nextPowerOf2(block_size) / 2;
+		 shift > 0;
+		 shift >>= 1)
+	{
+		if (tid_x < shift && tid_x + shift < block_size)
+		{
+			smem[tid_x] += smem[tid_x + shift];
+		}
+		__syncthreads();
+	}
+
+	if (tid_x == 0)
+		d_row_vec[bid_y] = smem[tid_x];
+}
+
+
+/*
+ * Sum elements of matrix in each column
+ *  m: number of rows of the matrix
+ *  n: number of columns of the matrix
+ */
+void gpu_sum_col (const double* const mat,
+                  double* row_vec,
+                  const int m,
+                  const int n)
+{
+	double *d_mat;
+	double *d_row_vec;
+
+	// Allocate the device memory
+	checkCudaErrors(cudaMalloc(&d_mat, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_row_vec, n*sizeof(double)));
+	
+	// Copy data from the host memory to the device memory
+	checkCudaErrors(cudaMemcpy(d_mat, mat, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = n;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat, d_row_vec, m, n);
+	
+	// Copy data from the device memory to the host memory
+	checkCudaErrors(cudaMemcpy(row_vec, d_row_vec, n*sizeof(double), cudaMemcpyDeviceToHost));
+
+	// Free the device memory
+	cudaFree(d_mat);
+	cudaFree(d_row_vec);
+}
+
+// Kernel to compute the elementwise multiplication in computing dW1
+__global__
+void device_elementwise_mult (const double* const d_mat_da1,
+							  const double* const d_mat_a1,
+							  double* d_mat_dz1,
+							  const int m,
+							  const int n)
+{
+	// Global thread index in the grid
+	const int tid_x = threadIdx.x + blockDim.x*blockIdx.x;
+	const int tid_y = threadIdx.y + blockDim.y*blockIdx.y;
+	
+	// If the thread is not inside the matrix D, return
+	if (tid_x >= m || tid_y >= n)
+	{
+		return;
+	}
+	
+	// Compute the index in the matrix
+	int idx = tid_y*m + tid_x;
+	
+	// Apply the sigmoid function
+	d_mat_dz1[idx] = d_mat_da1[idx]*d_mat_a1[idx]*(1.0 - d_mat_a1[idx]);
+}
+
+/*
+ * Elementwise multiplication used to compute dW1
+ * and returns a new matrix by GPU
+ *  mat_da1: input matrix da1
+ *  mat_a1:  input matrix a1
+ *  mat_dz1: output matrix dz1
+ *  m:     number of rows of the matrices
+ *  n:     number of columns of the matrices
+ */
+void gpu_elementwise_mult (const double* const mat_da1,
+						   const double* const mat_a1,
+						   double* mat_dz1,
+						   const int m,
+						   const int n)
+{
+	double *d_mat_da1;
+	double *d_mat_a1;
+	double *d_mat_dz1;
+	
+	// Allocate the device memory
+	checkCudaErrors(cudaMalloc(&d_mat_da1, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_a1, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dz1, m*n*sizeof(double)));
+	
+	// Copy data from the host memory to the device memory
+	checkCudaErrors(cudaMemcpy(d_mat_da1, mat_da1, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_a1, mat_a1, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_elementwise_mult;
+	n_threads.y = BLOCK_SIZE_y_elementwise_mult;
+	
+	// Compute the grid size
+	n_blocks.x = (m + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (n + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the elementwise multiplication
+	device_elementwise_mult <<<n_blocks, n_threads>>> (d_mat_da1, d_mat_a1, d_mat_dz1, m, n);
+	
+	// Copy data from the device memory to the host memory
+	checkCudaErrors(cudaMemcpy(mat_dz1, d_mat_dz1, m*n*sizeof(double), cudaMemcpyDeviceToHost));
+	
+	// Free the device memory
+	cudaFree(d_mat_da1);
+	cudaFree(d_mat_a1);
+	cudaFree(d_mat_dz1);
+}
+
+void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_cols,
+                            const double* const mat_W1, int W1_n_rows, int W1_n_cols,
+                            const double* const mat_b1, int b1_n_rows, int b1_n_cols,
+                            double* mat_z1, int z1_n_rows, int z1_n_cols,
+                            double* mat_a1, int a1_n_rows, int a1_n_cols,
+                            const double* const mat_W2, int W2_n_rows, int W2_n_cols,
+                            const double* const mat_b2, int b2_n_rows, int b2_n_cols,
+                            double* mat_z2, int z2_n_rows, int z2_n_cols,
+                            double* mat_a2, int a2_n_rows, int a2_n_cols)
+{
+	double* d_mat_X;
+	double* d_mat_W1;
+	double* d_mat_b1;
+	double* d_mat_z1;
+	double* d_mat_a1;
+	double* d_mat_W2;
+	double* d_mat_b2;
+	double* d_mat_z2;
+	double* d_mat_a2;
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	// Allocate the device memory
+	checkCudaErrors(cudaMalloc(&d_mat_X, X_n_rows*X_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W1, W1_n_rows*W1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b1, b1_n_rows*b1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z1, z1_n_rows*z1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_a1, a1_n_rows*a1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W2, W2_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b2, b2_n_rows*b2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z2, z2_n_rows*z2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_a2, a2_n_rows*a2_n_cols*sizeof(double)));
+	
+	// Copy data from the host memory to the device memory
+	checkCudaErrors(cudaMemcpy(d_mat_X, mat_X, X_n_rows*X_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W1, mat_W1, W1_n_rows*W1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_b1, mat_b1, b1_n_rows*b1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W2, mat_W2, W2_n_rows*W2_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_b2, mat_b2, b2_n_rows*b2_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	
+	/*
+	 * Do the feedforward for z1
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (z1_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z1_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    1.0,
+														    d_mat_X,
+														    d_mat_W1,
+														    d_mat_b1,
+														    d_mat_z1,
+														    X_n_rows,
+														    X_n_cols,
+														    W1_n_rows,
+														    false,
+														    true);
+		
+	/*
+	 * Compute the sigmoid of z1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SIGMOID;
+	n_threads.y = BLOCK_SIZE_y_SIGMOID;
+	
+	// Compute the grid size
+	n_blocks.x = (z1_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z1_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_sigmoid <<<n_blocks, n_threads>>> (d_mat_z1, d_mat_a1, z1_n_rows, z1_n_cols);
+	
+	/*
+	 * Do the feedforward for z2
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (z2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    1.0,
+														    d_mat_a1,
+														    d_mat_W2,
+														    d_mat_b2,
+														    d_mat_z2,
+														    a1_n_rows,
+														    a1_n_cols,
+														    W2_n_rows,
+														    false,
+														    true);
+	
+	/*
+	 * Compute the softmax of z2
+	 */
+	
+	double* d_sums;
+	checkCudaErrors(cudaMalloc(&d_sums, z2_n_rows*sizeof(double)));
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (z2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to compute the elementwise exponentinal function
+	device_exponent <<<n_blocks, n_threads>>> (d_mat_z2, d_mat_a2, z2_n_rows, z2_n_cols);
+	
+	// Compute the block dimension
+	n_threads.x = 1;
+	n_threads.y = BLOCK_SIZE_REDUCTION;
+	
+	// Compute the grid size
+	n_blocks.x = a2_n_rows;
+	n_blocks.y = 1;
+	
+	device_reduce_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_a2, d_sums, a2_n_rows, a2_n_cols);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (a2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (a2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	device_normalize <<<n_blocks, n_threads>>> (d_mat_a2, d_sums, a2_n_rows, a2_n_cols);
+	
+	cudaFree(d_sums);
+	
+	// Copy data from the device memory to the host memory
+	checkCudaErrors(cudaMemcpy(mat_z1, d_mat_z1, z1_n_rows*z1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_a1, d_mat_a1, a1_n_rows*a1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_z2, d_mat_z2, z2_n_rows*z2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_a2, d_mat_a2, a2_n_rows*a2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+		
+	// Free the device memory
+	cudaFree(d_mat_X);
+	cudaFree(d_mat_W1);
+	cudaFree(d_mat_b1);
+	cudaFree(d_mat_z1);
+	cudaFree(d_mat_a1);
+	cudaFree(d_mat_W2);
+	cudaFree(d_mat_b2);
+	cudaFree(d_mat_z2);
+	cudaFree(d_mat_a2);
+}
+
+void gpu_accel_backprop (const double reg,
+						 const double* const mat_diff, const int diff_n_rows, const int diff_n_cols,
+                         const double* const mat_X, const int X_n_rows, const int X_n_cols,
+                         const double* const mat_a1, const int a1_n_rows, const int a1_n_cols,
+                         const double* const mat_W1, const int W1_n_rows, const int W1_n_cols,
+                         const double* const mat_W2, const int W2_n_rows, const int W2_n_cols,
+                         double* mat_dW1, const int dW1_n_rows, const int dW1_n_cols,
+                         double* mat_dW2, const int dW2_n_rows, const int dW2_n_cols,
+                         double* mat_db1, const int db1_n_cols,
+                         double* mat_db2, const int db2_n_cols)
+{
+	double* d_mat_diff;
+	double* d_mat_X;
+	double* d_mat_a1;
+	double* d_mat_W1;
+	double* d_mat_W2;
+	double* d_mat_dz1;
+	double* d_mat_da1;
+	double* d_mat_dW1;
+	double* d_mat_dW2;
+	double* d_mat_db1;
+	double* d_mat_db2;
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	// Allocate the device memory
+	checkCudaErrors(cudaMalloc(&d_mat_diff, diff_n_rows*diff_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_X, X_n_rows*X_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_a1, a1_n_rows*a1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W1, W1_n_rows*W1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W2, W2_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dz1, diff_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_da1, diff_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db1, db1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db2, db2_n_cols*sizeof(double)));
+	
+	// Copy data from the host memory to the device memory
+	checkCudaErrors(cudaMemcpy(d_mat_diff, mat_diff, diff_n_rows*diff_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_X, mat_X, X_n_rows*X_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_a1, mat_a1, a1_n_rows*a1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W1, mat_W1, W1_n_rows*W1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W2, mat_W2, W2_n_rows*W2_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	
+	/*
+	 * Compute dW2
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (dW2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (dW2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    reg,
+														    d_mat_diff,
+														    d_mat_a1,
+														    d_mat_W2,
+														    d_mat_dW2,
+														    diff_n_cols,
+														    diff_n_rows,
+														    a1_n_cols,
+														    true,
+														    false);
+	
+	/*
+	 * Compute dW1
+	 */
+	
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (diff_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    0.0,
+														    d_mat_diff,
+														    d_mat_W2,
+														    d_mat_da1,
+														    d_mat_da1,
+														    diff_n_rows,
+														    diff_n_cols,
+														    W2_n_cols,
+														    false,
+														    false);
+
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_elementwise_mult;
+	n_threads.y = BLOCK_SIZE_y_elementwise_mult;
+	
+	// Compute the grid size
+	n_blocks.x = (diff_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the elementwise multiplication
+	device_elementwise_mult <<<n_blocks, n_threads>>> (d_mat_da1, d_mat_a1, d_mat_dz1, diff_n_rows, W2_n_cols);
+	
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (W2_n_cols + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (X_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    reg,
+														    d_mat_dz1,
+														    d_mat_X,
+														    d_mat_W1,
+														    d_mat_dW1,
+														    W2_n_cols,
+														    diff_n_rows,
+														    X_n_cols,
+														    true,
+														    false);
+	
+	/*
+	 * Compute db1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = diff_n_rows;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_diff, d_mat_db2, diff_n_cols, diff_n_rows);
+	
+	/*
+	 * Compute db2
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = W2_n_cols;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_dz1, d_mat_db1, diff_n_rows, W2_n_cols);
+	
+	// Copy data from the device memory to the host memory
+	checkCudaErrors(cudaMemcpy(mat_dW1, d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_dW2, d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_db1, d_mat_db1, db1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_db2, d_mat_db2, db2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	
+	// Free the device memory
+	cudaFree(d_mat_diff);
+	cudaFree(d_mat_X);
+	cudaFree(d_mat_a1);
+	cudaFree(d_mat_W1);
+	cudaFree(d_mat_W2);
+	cudaFree(d_mat_dz1);
+	cudaFree(d_mat_da1);
+	cudaFree(d_mat_dW1);
+	cudaFree(d_mat_dW2);
+	cudaFree(d_mat_db1);
+	cudaFree(d_mat_db2);
 }

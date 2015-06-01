@@ -71,7 +71,7 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double* mat_b1 = b1.memptr();
     arma::mat z1(X.n_rows, W1_t.n_cols);
     
-    gpu_GEMM_2(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols, false, false);
+    gpu_GEMM_1(1.0, 1.0, mat_X, mat_W1_t, mat_b1, z1.memptr(), X.n_rows, X.n_cols, W1_t.n_cols, false, false);
     // arma::mat z1 = X * nn.W[0].t() + arma::repmat(nn.b[0], N, 1);
     cache.z[0] = z1;
     
@@ -90,7 +90,7 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     double *mat_b2 = b2.memptr();
     arma::mat z2(a1.n_rows, W2_t.n_cols);
     
-    gpu_GEMM_2(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols, false, false);
+    gpu_GEMM_1(1.0, 1.0, mat_a1, mat_W2_t, mat_b2, z2.memptr(), a1.n_rows, a1.n_cols, W2_t.n_cols, false, false);
     // arma::mat z2 = a1 * nn.W[1].t() + arma::repmat(nn.b[1], N, 1);
     cache.z[1] = z2;
     
@@ -99,6 +99,41 @@ void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
     softmax (z2, a2);
     cache.a[1] = cache.yc = a2;
 }
+/*
+void gpu_feedforward(TwoLayerNet &nn, const arma::mat& X, struct cache& cache)
+{    
+    cache.z.resize(2);
+    cache.a.resize(2);
+    
+    // std::cout << W[0].n_rows << "\n";
+    assert (X.n_cols == nn.W[0].n_cols);
+    cache.X = X;
+    int N = X.n_rows;
+    
+    arma::mat b1 = arma::repmat(nn.b[0], N, 1);
+    arma::mat z1(X.n_rows, nn.W[0].n_rows);
+    arma::mat a1(z1.n_rows, z1.n_cols);
+    
+    arma::mat b2 = arma::repmat(nn.b[1], N, 1);
+    arma::mat z2(a1.n_rows, nn.W[1].n_rows);
+    arma::mat a2(z2.n_rows, z2.n_cols);
+    
+    gpu_accel_feedforward (cache.X.memptr(), cache.X.n_rows, cache.X.n_cols,
+                           nn.W[0].memptr(), nn.W[0].n_rows, nn.W[0].n_cols,
+                           b1.memptr(), b1.n_rows, b1.n_cols,
+                           z1.memptr(), z1.n_rows, z1.n_cols,
+                           a1.memptr(), a1.n_rows, a1.n_cols,
+                           nn.W[1].memptr(), nn.W[1].n_rows, nn.W[1].n_cols,
+                           b2.memptr(), b2.n_rows, b2.n_cols,
+                           z2.memptr(), z2.n_rows, z2.n_cols,
+                           a2.memptr(), a2.n_rows, a2.n_cols);
+                           
+    cache.z[0] = z1;
+    cache.a[0] = a1;
+    cache.z[1] = z2;
+    cache.a[1] = cache.yc = a2;
+}
+*/
 
 /*
  * Computes the gradients of the cost w.r.t each param.
@@ -147,7 +182,7 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
     double* mat_W2 = nn.W[1].memptr();
     bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
     double* mat_dW2 = bpgrads.dW[1].memptr();
-    gpu_GEMM_2(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols, false, false);
+    gpu_GEMM_1(1.0, reg, mat_diff_t, mat_a1, mat_W2, mat_dW2, diff_t.n_rows, diff_t.n_cols, bpcache.a[0].n_cols, false, false);
     // bpgrads.dW[1] = diff.t() * bpcache.a[0] + reg * nn.W[1];
     
     bpgrads.db[1] = arma::sum (diff, 0);
@@ -155,7 +190,7 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
     arma::mat da1(diff.n_rows, nn.W[1].n_cols);
     double* mat_da1 = da1.memptr();
     double* mat_diff = diff.memptr();
-    gpu_GEMM_2(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false, false);
+    gpu_GEMM_1(1.0, 0.0, mat_diff, mat_W2, mat_da1, mat_da1, diff.n_rows, diff.n_cols, nn.W[1].n_cols, false, false);
     //arma::mat da1 = diff * nn.W[1];
     
     arma::mat dz1 = da1 % bpcache.a[0] % (1 - bpcache.a[0]);
@@ -166,11 +201,40 @@ void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct 
     double* mat_W1 = nn.W[0].memptr();
     bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
     double* mat_dW1 = bpgrads.dW[0].memptr();
-    gpu_GEMM_2(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols, false, false);
+    gpu_GEMM_1(1.0, reg, mat_dz1_t, mat_X, mat_W1, mat_dW1, dz1_t.n_rows, dz1_t.n_cols, bpcache.X.n_cols, false, false);
     // bpgrads.dW[0] = dz1.t() * bpcache.X + reg * nn.W[0];
     
     bpgrads.db[0] = arma::sum(dz1, 0);
 }
+/*
+void gpu_backprop(TwoLayerNet &nn, const arma::mat& y, double reg, const struct cache& bpcache, struct grads& bpgrads)
+{
+    bpgrads.dW.resize(2);
+    bpgrads.db.resize(2);
+    int N = y.n_rows;
+    
+    // std::cout << "backprop " << bpcache.yc << "\n";
+    arma::mat diff = (1.0 / N) * (bpcache.yc - y);
+    
+    bpgrads.dW[0].set_size(nn.W[0].n_rows, nn.W[0].n_cols);
+    bpgrads.dW[1].set_size(nn.W[1].n_rows, nn.W[1].n_cols);
+    
+    bpgrads.db[0].set_size(nn.W[1].n_cols);
+    bpgrads.db[1].set_size(diff.n_cols);
+    
+    
+    gpu_accel_backprop (reg,
+                        diff.memptr(), diff.n_rows, diff.n_cols,
+                        bpcache.X.memptr(), bpcache.X.n_rows, bpcache.X.n_cols,
+                        bpcache.a[0].memptr(), bpcache.a[0].n_rows, bpcache.a[0].n_cols,
+                        nn.W[0].memptr(), nn.W[0].n_rows, nn.W[0].n_cols,
+                        nn.W[1].memptr(), nn.W[1].n_rows, nn.W[1].n_cols,
+                        bpgrads.dW[0].memptr(), bpgrads.dW[0].n_rows, bpgrads.dW[0].n_cols,
+                        bpgrads.dW[1].memptr(), bpgrads.dW[1].n_rows, bpgrads.dW[1].n_cols,
+                        bpgrads.db[0].memptr(), bpgrads.db[0].n_cols,
+                        bpgrads.db[1].memptr(), bpgrads.db[1].n_cols);
+}
+*/
 
 /*
  * Computes the Cross-Entropy loss function for the neural network.
@@ -446,11 +510,11 @@ void parallel_train (TwoLayerNet &nn,
                 
                 struct cache bpcache;
                 
-                gpu_feedforward (nn, X_sub_batch, bpcache);
-                // feedforward (nn, X_sub_batch, bpcache);
+                // gpu_feedforward (nn, X_sub_batch, bpcache);
+                feedforward (nn, X_sub_batch, bpcache);
                 
-                gpu_backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
-                // backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
+                // gpu_backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
+                backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
                 
                 if (print_every > 0 && iter % print_every == 0)
                 {

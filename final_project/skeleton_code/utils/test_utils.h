@@ -144,6 +144,77 @@ void test_gpu_softmax (int m, int n)
 	}
 }
 
+/* Test the gpu_sum_col function */
+void test_gpu_sum_col(int m, int n)
+{
+	// Generate random values for matrices A
+	arma::mat A = arma::randn (m,n);
+	arma::rowvec B(n);
+	arma::rowvec B_gpu(n);
+	
+	double start, end;
+	
+	start = MPI_Wtime();
+	B = arma::sum (A, 0);
+	end = MPI_Wtime();
+	std::cout << "  CPU column reduction speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_sum_col (A.memptr(), B_gpu.memptr(), m, n);
+	end = MPI_Wtime();
+	std::cout << "  gpu_sum_col() speed: " << end - start << std::endl;
+	
+	if (almost_equal_matrix(B, B_gpu.memptr(), true))
+	{
+		std::cout << "  Test on gpu_sum_col() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_sum_col() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+		exit(1);
+	}
+}
+
+/* Test the gpu_elementwise_mult function */
+void gpu_elementwise_mult (int m, int n)
+{
+	// Generate random values for matrices A
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (m,n);
+	arma::mat C(m,n);
+	arma::mat C_gpu(m,n);
+	
+	double start, end;
+	
+	start = MPI_Wtime();
+	C = A % B % (1 - B);
+	end = MPI_Wtime();
+	std::cout << "  CPU elementwise multiplication speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_elementwise_mult(A.memptr(), B.memptr(), C_gpu.memptr(), m, n);
+	end = MPI_Wtime();
+	std::cout << "  gpu_elementwise_mult() speed: " << end - start << std::endl;
+	
+	if (almost_equal_matrix(C, C_gpu.memptr(), true))
+	{
+		std::cout << "  Test on gpu_elementwise_mult() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+	}
+	else
+	{
+		std::cerr << "  Test on gpu_elementwise_mult() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+		exit(1);
+	}
+}
+
 /* Test the gpu_GEMM_0 function */
 void test_gpu_GEMM_0a (int m, int n, int l)
 {

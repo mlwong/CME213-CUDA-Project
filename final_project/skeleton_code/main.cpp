@@ -30,7 +30,7 @@
         exit(1);                                                 \
     } } while(0)
 
-#define TEST
+// #define TEST
 
 int main (int argc, char *argv[]) {
 	
@@ -177,6 +177,14 @@ int main (int argc, char *argv[]) {
 		std::cout << "Testing gpu_softmax(): " << std::endl;
 		test_gpu_softmax(1000, 1000);
 		std::cout << std::endl;
+		
+		std::cout << "Testing gpu_sum_col(): " << std::endl;
+		test_gpu_sum_col(1000, 1000);
+		std::cout << std::endl;
+		
+		std::cout << "Testing gpu_elementwise_mult(): " << std::endl;
+		gpu_elementwise_mult(1000, 1000);
+		std::cout << std::endl;
 	}
 #endif
 	
@@ -284,7 +292,7 @@ int main (int argc, char *argv[]) {
 		double start = MPI_Wtime();
 		
 		/* ---- Parallel Training ---- */
-		parallel_train (nn, x_train, y_train, learning_rate, reg, num_epochs, batch_size, false, 1);
+		parallel_train (nn, x_train, y_train, learning_rate, reg, num_epochs, batch_size, false, -1);
 		
 		double end = MPI_Wtime();
 		if (rank == 0)
