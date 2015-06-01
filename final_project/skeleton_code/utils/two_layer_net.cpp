@@ -510,11 +510,11 @@ void parallel_train (TwoLayerNet &nn,
                 
                 struct cache bpcache;
                 
-                // gpu_feedforward (nn, X_sub_batch, bpcache);
-                feedforward (nn, X_sub_batch, bpcache);
+                gpu_feedforward (nn, X_sub_batch, bpcache);
+                // feedforward (nn, X_sub_batch, bpcache);
                 
-                // gpu_backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
-                backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
+                gpu_backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
+                // backprop (nn, y_sub_batch, reg, bpcache, bpgrads);
                 
                 if (print_every > 0 && iter % print_every == 0)
                 {
