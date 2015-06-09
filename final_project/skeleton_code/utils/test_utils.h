@@ -77,7 +77,7 @@ bool almost_equal_matrix (const arma::mat& M,
 /* Test the gpu_sigmoid function */
 void test_gpu_sigmoid (int m, int n)
 {
-	// Generate random values for matrices A
+	// Generate random values for matrix A
 	arma::mat A = arma::randn (m,n);
 	arma::mat B(m,n);
 	arma::mat B_gpu(m,n);
@@ -102,7 +102,7 @@ void test_gpu_sigmoid (int m, int n)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_sigmoid() PASSED for m = "
+		std::cout << "  Test on gpu_sigmoid() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << std::endl;
 		exit(1);
@@ -112,7 +112,7 @@ void test_gpu_sigmoid (int m, int n)
 /* Test the gpu_softmax function */
 void test_gpu_softmax (int m, int n)
 {
-	// Generate random values for matrices A
+	// Generate random values for matrix A
 	arma::mat A = arma::randn (m,n);
 	arma::mat B(m,n);
 	arma::mat B_gpu(m,n);
@@ -137,7 +137,7 @@ void test_gpu_softmax (int m, int n)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_softmax() PASSED for m = "
+		std::cout << "  Test on gpu_softmax() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << std::endl;
 		exit(1);
@@ -147,7 +147,7 @@ void test_gpu_softmax (int m, int n)
 /* Test the gpu_sum_col function */
 void test_gpu_sum_col(int m, int n)
 {
-	// Generate random values for matrices A
+	// Generate random values for matrix A
 	arma::mat A = arma::randn (m,n);
 	arma::rowvec B(n);
 	arma::rowvec B_gpu(n);
@@ -172,7 +172,7 @@ void test_gpu_sum_col(int m, int n)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_sum_col() PASSED for m = "
+		std::cout << "  Test on gpu_sum_col() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << std::endl;
 		exit(1);
@@ -180,9 +180,9 @@ void test_gpu_sum_col(int m, int n)
 }
 
 /* Test the gpu_elementwise_mult function */
-void gpu_elementwise_mult (int m, int n)
+void test_gpu_elementwise_mult (int m, int n)
 {
-	// Generate random values for matrices A
+	// Generate random values for matrices A and B
 	arma::mat A = arma::randn (m,n);
 	arma::mat B = arma::randn (m,n);
 	arma::mat C(m,n);
@@ -208,7 +208,114 @@ void gpu_elementwise_mult (int m, int n)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_elementwise_mult() PASSED for m = "
+		std::cout << "  Test on gpu_elementwise_mult() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+		exit(1);
+	}
+}
+
+/* Test the gpu_elementwise_gpu_elementwise_subtract function */
+void test_gpu_elementwise_subtract (int m, int n)
+{
+	// Generate random values for matrices A and B
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (m,n);
+	arma::mat C(m,n);
+	arma::mat C_gpu(m,n);
+	
+	double start, end;
+	
+	start = MPI_Wtime();
+	C = A - 2.0*B;
+	end = MPI_Wtime();
+	std::cout << "  CPU elementwise subtraction speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_elementwise_subtract(2.0, A.memptr(), B.memptr(), C_gpu.memptr(), m, n);
+	end = MPI_Wtime();
+	std::cout << "  gpu_elementwise_subtract() speed: " << end - start << std::endl;
+	
+	if (almost_equal_matrix(C, C_gpu.memptr(), true))
+	{
+		std::cout << "  Test on gpu_elementwise_subtract() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+	}
+	else
+	{
+		std::cout << "  Test on gpu_elementwise_subtract() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+		exit(1);
+	}
+}
+
+/* Test the gpu_compute_diff function */
+void test_gpu_compute_diff (int m, int n)
+{
+	// Generate random values for matrices A and B
+	arma::mat A = arma::randn (m,n);
+	arma::mat B = arma::randn (m,n);
+	arma::mat C(m,n);
+	arma::mat C_gpu(m,n);
+	
+	double start, end;
+	
+	start = MPI_Wtime();
+	C = (1.0 / m) * (A - B);
+	end = MPI_Wtime();
+	std::cout << "  CPU elementwise substraction speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_compute_diff(A.memptr(), B.memptr(), C_gpu.memptr(), m, n);
+	end = MPI_Wtime();
+	std::cout << "  gpu_compute_diff() speed: " << end - start << std::endl;
+	
+	if (almost_equal_matrix(C, C_gpu.memptr(), true))
+	{
+		std::cout << "  Test on gpu_compute_diff() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+	}
+	else
+	{
+		std::cout << "  Test on gpu_compute_diff() FAILED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+		exit(1);
+	}
+}
+
+/* Test the gpu_transpose function */
+void test_gpu_transpose (int m, int n)
+{
+	// Generate random values for matrix A
+	arma::mat A = arma::randn (m,n);
+	arma::mat B(n, m);
+	arma::mat B_gpu(n, m);
+	
+	double start, end;
+	
+	start = MPI_Wtime();
+	B = A.t();
+	end = MPI_Wtime();
+	std::cout << "  CPU transpose speed: " << end - start << std::endl;
+	
+	start = MPI_Wtime();
+	gpu_transpose (A.memptr(), B_gpu.memptr(), A.n_rows, A.n_cols);
+	end = MPI_Wtime();
+	std::cout << "  gpu_transpose() speed: " << end - start << std::endl;
+	
+	if (almost_equal_matrix(B, B_gpu.memptr(), true))
+	{
+		std::cout << "  Test on gpu_transpose() PASSED for m = "
+				  << m << ", "
+				  << "n = " << n << std::endl;
+	}
+	else
+	{
+		std::cout << "  Test on gpu_transpose() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << std::endl;
 		exit(1);
@@ -248,7 +355,7 @@ void test_gpu_GEMM_0a (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_0() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -292,7 +399,7 @@ void test_gpu_GEMM_0b (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_0() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -336,7 +443,7 @@ void test_gpu_GEMM_0c (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_0() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -380,7 +487,7 @@ void test_gpu_GEMM_0d (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_0() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_0() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -424,7 +531,7 @@ void test_gpu_GEMM_1a (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_1() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -468,7 +575,7 @@ void test_gpu_GEMM_1b (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_1() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -512,7 +619,7 @@ void test_gpu_GEMM_1c (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_1() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -556,7 +663,7 @@ void test_gpu_GEMM_1d (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_1() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_1() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -600,7 +707,7 @@ void test_gpu_GEMM_2a (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_2() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -644,7 +751,7 @@ void test_gpu_GEMM_2b (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_2() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -688,7 +795,7 @@ void test_gpu_GEMM_2c (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_2() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -732,7 +839,7 @@ void test_gpu_GEMM_2d (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_2() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_2() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -776,7 +883,7 @@ void test_gpu_GEMM_3a (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_3() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -820,7 +927,7 @@ void test_gpu_GEMM_3b (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_3() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -864,7 +971,7 @@ void test_gpu_GEMM_3c (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_3() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -908,7 +1015,7 @@ void test_gpu_GEMM_3d (int m, int n, int l)
 	}
 	else
 	{
-		std::cerr << "  Test on gpu_GEMM_3() FAILED for m = "
+		std::cout << "  Test on gpu_GEMM_3() FAILED for m = "
 				  << m << ", "
 				  << "n = " << n << ", "
 				  << "l = " << l << ", "
@@ -928,7 +1035,7 @@ void test_speed_GEMM (int m, int n, int l)
 			  << ", n = "
 			  << n
 			  << ", l = "
-			  << n
+			  << l
 			  << std::endl;
 	
 	std::cout << std::endl;
@@ -1018,7 +1125,7 @@ void test_speed_GEMM (int m, int n, int l)
 	C = arma::randn (m,l);
 	
 	start = MPI_Wtime();
-	D = alpha*A.t()*B + beta*C;
+	D = alpha*A*B.t() + beta*C;
 	end = MPI_Wtime();
 	std::cout << "  CPU GEMM speed: " << end - start << std::endl;
 	

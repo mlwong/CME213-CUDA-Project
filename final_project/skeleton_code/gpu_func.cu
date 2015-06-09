@@ -6,6 +6,10 @@
 #include <helper_functions.h>
 #include <iostream>
 
+// Block size used in transpose
+#define BLOCK_SIZE_x_transpose 64
+#define BLOCK_SIZE_y_transpose 8
+
 // Block size used in algorithm 0 of GEMM
 #define BLOCK_SIZE_0 256
 
@@ -34,6 +38,14 @@
 // Block size used in elementwise multiplication
 #define BLOCK_SIZE_x_elementwise_mult 64
 #define BLOCK_SIZE_y_elementwise_mult 8
+
+// Block size used in elementwise substraction
+#define BLOCK_SIZE_x_elementwise_subtract 64
+#define BLOCK_SIZE_y_elementwise_subtract 8
+
+// Block size used in difference function
+#define BLOCK_SIZE_x_DIFF 64
+#define BLOCK_SIZE_y_DIFF 8
 
 __global__
 void device_add_one (int* d_result, int t)
@@ -157,7 +169,7 @@ void device_GEMM_0 (const double alpha,
 /*
  * Algorithm 0 of general matrix-matrix multiplication (GEMM)
  * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
- * One thread is used to calculate one element in matrix D
+ * One thread is used to calculate one element in matrix D natively
  * 1D blocks are used
  * natively
  * 
@@ -832,7 +844,6 @@ void gpu_GEMM_2 (const double alpha,
 	cudaFree(d_mat_D);
 }
 
-
 // Kernel to compute the third GEMM algorithm
 template<int block_size_x, int block_size_y>
 __global__
@@ -856,288 +867,174 @@ void device_GEMM_3 (const double alpha,
 	const int bid_x = blockIdx.x;
 	const int bid_y = blockIdx.y;
 	
-	// Declaration of the shared memory used to store the
-	// (block_size_y x block_size_x) sub-matrix of B/B^T
-	__shared__ double mat_B_shared[block_size_y + 1][block_size_x + 1];
+	// Declare the shared memory to store sub-block of matrix B
+	__shared__ double mat_B_shared[block_size_x][block_size_x+1];
 	
-	// Compute the number of elements along the row computed by this thread
-	int num_sums = min(block_size_x, l - block_size_x*bid_y);
+	// Declare a local array in register to store the sums in the
+	// elements the thread is responsible for
+	double c[block_size_x];
 	
-	double sums[block_size_x];
-	for (int i = 0; i < block_size_x; i++)
+#pragma unroll
+	for (int i = 0; i< block_size_x; i++)
 	{
-		sums[i] = 0.0;
+		c[i] = 0.0;
 	}
 	
-	// Row of matrix A/A^T that the thread is responsible for
-	int row = block_size_x*block_size_y*bid_x + block_size_x*tid_y + tid_x;
-	
-	if (transpose_A == false)
+	if (transpose_A == false && transpose_B == false)
 	{
-		if (transpose_B == false)
+		int idx_A = bid_x*block_size_x*block_size_y + tid_x + tid_y*block_size_x;
+		int idx_B = tid_x + (bid_y*block_size_x + tid_y)*n;
+		
+		int idx_B_last = idx_B + n;
+		int col_A = 0;
+		
+		do
 		{
-			// Index of the first sub-matrix of B processed by the block
-			int mat_B_begin = n*block_size_x*bid_y;
+#pragma unroll
+			for(int i = 0; i < block_size_x; i += block_size_y)
+				mat_B_shared[tid_x][tid_y + i] = d_mat_B[idx_B + i*n];
 			
-			// Index of the last sub-matrix of B processed by the blcok
-			int mat_B_end   = mat_B_begin + n - 1;
+			idx_B += block_size_x;
 			
-			// Step size used to iterate through the sub-matrices of B
-			int mat_B_step  = block_size_y;
+			__syncthreads();
 			
-			// Step size used to iterate through the columns of A
-			int A_col_step	= block_size_y;
-			
-			// Step size used to iterate througth the rows of B
-			int B_row_step	= block_size_y;
-			
-			// Loop over all the sub-matrices of A and B
-			// required to compute the block sub-matrix
-			for (int idx_A_col = 0, idx_B_row = 0, idx_B = mat_B_begin;
-				 idx_B <= mat_B_end;
-				 idx_A_col += A_col_step, idx_B_row += B_row_step, idx_B += mat_B_step)
+			int i_bound = min(block_size_x, n - col_A);
+			for (int i = 0; i < i_bound; i++, idx_A+=m)
 			{
-				// Load the (1 x block_size_y) sub-matrix of A into a local array
-				double a[block_size_y];
-				// if (row < m)
+#pragma unroll
+				for (int j = 0; j < block_size_x; j++)
 				{
-					int i_lim = min(block_size_y, n - idx_A_col);
-					for (int i = 0; i < i_lim; i++)
-					{
-						a[i] = d_mat_A[(idx_A_col + i)*m + row];
-					}
+					c[j] += d_mat_A[idx_A]*mat_B_shared[i][j];
 				}
-				
-				// Load the matrix from device memory to shared memory
-				// Each thread loads one element of the (block_size_y x block_size_x)
-				// sub-matrix of B
-				// if (tid_y + idx_B_row < n && block_size_x*bid_y + tid_x < l)
-					mat_B_shared[tid_y][tid_x] = d_mat_B[idx_B + n*tid_x + tid_y];
-				
-				// Synchronize to make sure the matrices are loaded
-				__syncthreads();
-				
-				// if (row < m)
-				{
-					int k_lim = min(block_size_y, n - idx_A_col);
-					for (int i = 0; i < num_sums; i++)
-					{
-						for (int k = 0; k < k_lim; k++)
-						{
-							sums[i] += a[k]*mat_B_shared[k][i];
-						}
-					}
-				}
-				
-				// Synchronize to make sure that the preceding computation
-				// is done before loading two new sub-matrices of A and B
-				// in the next iteration
-				__syncthreads();
 			}
-		}
-		else
+			
+			col_A += block_size_x;
+			
+			__syncthreads();
+		
+		}while (idx_B < idx_B_last);
+	}
+	else if (transpose_A == false && transpose_B == true)
+	{
+		int idx_A = bid_x*block_size_x*block_size_y + tid_x + tid_y*block_size_x;
+		int idx_B = tid_x*l + (bid_y*block_size_x + tid_y);
+		
+		int idx_B_last = idx_B + n*l;
+		int col_A = 0;
+		
+		do
 		{
-			// Index of the first sub-matrix of B^T processed by the block
-			int mat_B_t_begin = block_size_x*bid_y;
+#pragma unroll
+			for(int i = 0; i < block_size_x; i += block_size_y)
+				mat_B_shared[tid_x][tid_y + i] = d_mat_B[idx_B + i];
 			
-			// Index of the last sub-matrix of B^T processed by the blcok
-			int mat_B_t_end   = mat_B_t_begin + (n - 1)*l;
+			idx_B += block_size_x*l;
 			
-			// Step size used to iterate through the sub-matrices of B^T
-			int mat_B_t_step  = l*block_size_y;
+			__syncthreads();
 			
-			// Step size used to iterate through the columns of A
-			int A_col_step	= block_size_y;
-			
-			// Step size used to iterate througth the rows of B^T
-			int B_t_row_step	= block_size_y;
-			
-			// Loop over all the sub-matrices of A and B^T
-			// required to compute the block sub-matrix
-			for (int idx_A_col = 0, idx_B_t_row = 0, idx_B_t = mat_B_t_begin;
-				 idx_B_t <= mat_B_t_end;
-				 idx_A_col += A_col_step, idx_B_t_row += B_t_row_step, idx_B_t += mat_B_t_step)
+			int i_bound = min(block_size_x, n - col_A);
+			for (int i = 0; i < i_bound; i++, idx_A+=m)
 			{
-				// Load the (1 x block_size_y) sub-matrix of A into a local array
-				double a[block_size_y];
-				if (row < m)
+#pragma unroll
+				for (int j = 0; j < block_size_x; j++)
 				{
-					int i_lim = min(block_size_y, n - idx_A_col);
-					for (int i = 0; i < i_lim; i++)
-					{
-						a[i] = d_mat_A[(idx_A_col + i)*m + row];
-					}
+					c[j] += d_mat_A[idx_A]*mat_B_shared[i][j];
 				}
-				
-				// Load the matrix from device memory to shared memory
-				// Each thread loads one element of the (block_size_y x block_size_x)
-				// sub-matrix of B^T
-				if (tid_y + idx_B_t_row < n && block_size_x*bid_y + tid_x < l)
-					mat_B_shared[tid_y][tid_x] = d_mat_B[idx_B_t + l*tid_y + tid_x];
-				
-				// Synchronize to make sure the matrices are loaded
-				__syncthreads();
-				
-				if (row < m)
-				{
-					int k_lim = min(block_size_y, n - idx_A_col);
-					for (int i = 0; i < num_sums; i++)
-					{
-						for (int k = 0; k < k_lim; k++)
-						{
-							sums[i] += a[k]*mat_B_shared[k][i];
-						}
-					}
-				}
-				
-				// Synchronize to make sure that the preceding computation
-				// is done before loading two new sub-matrices of A and B^T
-				// in the next iteration
-				__syncthreads();
 			}
-		}
+			
+			col_A += block_size_x;
+			
+			__syncthreads();
+		
+		}while (idx_B < idx_B_last);
+	}
+	else if (transpose_A == true && transpose_B == false)
+	{
+		int idx_A = (bid_x*block_size_x*block_size_y + tid_x + tid_y*block_size_x)*n;
+		int idx_B = tid_x + (bid_y*block_size_x + tid_y)*n;
+
+		int idx_B_last = idx_B + n;
+		int col_A = 0;
+		
+		do
+		{
+#pragma unroll
+			for(int i = 0; i < block_size_x; i += block_size_y)
+				mat_B_shared[tid_x][tid_y + i] = d_mat_B[idx_B + i*n];
+			
+			idx_B += block_size_x;
+			
+			__syncthreads();
+			
+			int i_bound = min(block_size_x, n - col_A);
+			for (int i = 0; i < i_bound; i++, idx_A++)
+			{
+#pragma unroll
+				for (int j = 0; j < block_size_x; j++)
+				{
+					c[j] += d_mat_A[idx_A]*mat_B_shared[i][j];
+				}
+			}
+			
+			col_A += block_size_x;
+			
+			__syncthreads();
+		
+		}while (idx_B < idx_B_last);
 	}
 	else
 	{
-		if (transpose_B == false)
+		int idx_A = (bid_x*block_size_x*block_size_y + tid_x + tid_y*block_size_x)*n;
+		int idx_B = tid_x*l + (bid_y*block_size_x + tid_y);
+		
+		int idx_B_last = idx_B + n*l;
+		int col_A = 0;
+		do
 		{
-			// Index of the first sub-matrix of B processed by the block
-			int mat_B_begin = n*block_size_x*bid_y;
+#pragma unroll
+			for(int i = 0; i < block_size_x; i += block_size_y)
+				mat_B_shared[tid_x][tid_y + i] = d_mat_B[idx_B + i];
 			
-			// Index of the last sub-matrix of B processed by the blcok
-			int mat_B_end   = mat_B_begin + n - 1;
+			idx_B += block_size_x*l;
 			
-			// Step size used to iterate through the sub-matrices of B
-			int mat_B_step  = block_size_y;
+			__syncthreads();
 			
-			// Step size used to iterate through the columns of A^T
-			int A_t_col_step	= block_size_y;
-			
-			// Step size used to iterate througth the rows of B
-			int B_row_step	= block_size_y;
-			
-			// Loop over all the sub-matrices of A^T and B
-			// required to compute the block sub-matrix
-			for (int idx_A_t_col = 0, idx_B_row = 0, idx_B = mat_B_begin;
-				 idx_B <= mat_B_end;
-				 idx_A_t_col += A_t_col_step, idx_B_row += B_row_step, idx_B += mat_B_step)
+			int i_bound = min(block_size_x, n - col_A);
+			for (int i = 0; i < i_bound; i++, idx_A++)
 			{
-				// Load the (1 x block_size_y) sub-matrix of A^T into a local array
-				double a[block_size_y];
-				if (row < m)
+#pragma unroll
+				for (int j = 0; j < block_size_x; j++)
 				{
-					int i_lim = min(block_size_y, n - idx_A_t_col);
-					for (int i = 0; i < i_lim; i++)
-					{
-						a[i] = d_mat_A[row*n + (idx_A_t_col + i)];
-					}
+					c[j] += d_mat_A[idx_A]*mat_B_shared[i][j];
 				}
-				
-				// Load the matrix from device memory to shared memory
-				// Each thread loads one element of the (block_size_y x block_size_x)
-				// sub-matrix of B
-				if (tid_y + idx_B_row < n && block_size_x*bid_y + tid_x < l)
-					mat_B_shared[tid_y][tid_x] = d_mat_B[idx_B + n*tid_x + tid_y];
-				
-				// Synchronize to make sure the matrices are loaded
-				__syncthreads();
-				
-				if (row < m)
-				{
-					int k_lim = min(block_size_y, n - idx_A_t_col);
-					for (int i = 0; i < num_sums; i++)
-					{
-						for (int k = 0; k < k_lim; k++)
-						{
-							sums[i] += a[k]*mat_B_shared[k][i];
-						}
-					}
-				}
-				
-				// Synchronize to make sure that the preceding computation
-				// is done before loading two new sub-matrices of A^T and B
-				// in the next iteration
-				__syncthreads();
 			}
+			
+			col_A += block_size_x;
+			
+			__syncthreads();
+		
+		}while (idx_B < idx_B_last);
+	}
+	
+	if (bid_x*block_size_x*block_size_y + tid_x + tid_y*block_size_x < m)
+	{
+		int idx_D = bid_x*block_size_x*block_size_y + (tid_x + tid_y*block_size_x) + bid_y*block_size_x*m;
+		if (beta == 0.0)
+		{
+			int i_bound = min(block_size_x, l - bid_y*block_size_x);
+			for (int i = 0; i < i_bound; i++, idx_D += m)
+			{
+				d_mat_D[idx_D] = alpha*c[i];
+			}
+		
 		}
 		else
 		{
-			// Index of the first sub-matrix of B^T processed by the block
-			int mat_B_t_begin = block_size_x*bid_y;
-			
-			// Index of the last sub-matrix of B^T processed by the blcok
-			int mat_B_t_end   = mat_B_t_begin + (n - 1)*l;
-			
-			// Step size used to iterate through the sub-matrices of B^T
-			int mat_B_t_step  = l*block_size_y;
-			
-			// Step size used to iterate through the columns of A^T
-			int A_t_col_step	= block_size_y;
-			
-			// Step size used to iterate througth the rows of B^T
-			int B_t_row_step	= block_size_y;
-			
-			// Loop over all the sub-matrices of A and B^T
-			// required to compute the block sub-matrix
-			for (int idx_A_t_col = 0, idx_B_t_row = 0, idx_B_t = mat_B_t_begin;
-				 idx_B_t <= mat_B_t_end;
-				 idx_A_t_col += A_t_col_step, idx_B_t_row += B_t_row_step, idx_B_t += mat_B_t_step)
+			int i_bound = min(block_size_x, l - bid_y*block_size_x);
+			int idx_C = bid_x*block_size_x*block_size_y + (tid_x + tid_y*block_size_x) + bid_y*block_size_x*m;
+			for (int i = 0; i < i_bound; i++, idx_C += m, idx_D += m)
 			{
-				// Load the (1 x block_size_y) sub-matrix of A^T into a local array
-				double a[block_size_y];
-				if (row < m)
-				{
-					int i_lim = min(block_size_y, n - idx_A_t_col);
-					for (int i = 0; i < i_lim; i++)
-					{
-						a[i] = d_mat_A[row*n + (idx_A_t_col + i)];
-					}
-				}
-				
-				// Load the matrix from device memory to shared memory
-				// Each thread loads one element of the (block_size_y x block_size_x)
-				// sub-matrix of B^T
-				if (tid_y + idx_B_t_row < n && block_size_x*bid_y + tid_x < l)
-					mat_B_shared[tid_y][tid_x] = d_mat_B[idx_B_t + l*tid_y + tid_x];
-				
-				// Synchronize to make sure the matrices are loaded
-				__syncthreads();
-				
-				if (row < m)
-				{
-					int k_lim = min(block_size_y, n - idx_A_t_col);
-					for (int i = 0; i < num_sums; i++)
-					{
-						for (int k = 0; k < k_lim; k++)
-						{
-							sums[i] += a[k]*mat_B_shared[k][i];
-						}
-					}
-				}
-				
-				// Synchronize to make sure that the preceding computation
-				// is done before loading two new sub-matrices of A^T and B^T
-				// in the next iteration
-				__syncthreads();
-			}
-		}
-	}
-	
-	// Write the block sub-matrix to device memory
-	// each thread writes block_size_x elements
-	if (row < m)
-	{
-		for (int i = 0; i < num_sums; i++)
-		{
-			int idx_D = (block_size_x*bid_y + i)*m + row;
-				
-			if (beta == 0.0)
-			{
-				d_mat_D[idx_D] = alpha*sums[i];
-			}
-			else
-			{
-				d_mat_D[idx_D] = alpha*sums[i] + beta*d_mat_C[idx_D];
+				d_mat_D[idx_D] = alpha*c[i] + beta*d_mat_C[idx_C];
 			}
 		}
 	}
@@ -1194,12 +1091,9 @@ void gpu_GEMM_3 (const double alpha,
 	n_threads.x = BLOCK_SIZE_x_3;
 	n_threads.y = BLOCK_SIZE_y_3;
 	
-	// Compute the total number of threads in each block
-	int num_threads = n_threads.x * n_threads.y;
-	
 	// Assume each dimension of the block is less than 65536
 	// and compute the grid size
-	n_blocks.x = (m + num_threads - 1)/num_threads;
+	n_blocks.x = (m + n_threads.x*n_threads.y - 1)/(n_threads.x*n_threads.y);
 	n_blocks.y = (l + n_threads.x - 1)/n_threads.x;
 		
 	// Launch the kernel
@@ -1246,7 +1140,7 @@ void device_sigmoid (const double* const d_mat_1,
 	int idx = tid_y*m + tid_x;
 	
 	// Apply the sigmoid function
-	d_mat_2[idx] = 1 / (1 + exp(-d_mat_1[idx]));
+	d_mat_2[idx] = 1.0 / (1.0 + exp(-d_mat_1[idx]));
 }
 
 /*
@@ -1325,10 +1219,10 @@ int nextPowerOf2(const int x)
 // Kernel to do reduction along rows
 template<int block_size>
 __global__
-void device_reduce_block(const double* const d_mat,
-						 double* sums,
-						 const int m,
-						 const int n)
+void device_sum_row_block(const double* const d_mat,
+						  double* d_col_vec,
+						  const int m,
+						  const int n)
 {	
 	// Local thead index and block index
 	const int tid_y = threadIdx.y;
@@ -1361,13 +1255,13 @@ void device_reduce_block(const double* const d_mat,
 	}
 	
 	if (tid_y == 0)
-		sums[bid_x] = smem[tid_y];
+		d_col_vec[bid_x] = smem[tid_y];
 }
 
 // Kernel to normalize the outpus after applying exponential function
 __global__
 void device_normalize (double* d_mat,
-					   const double* sums,
+					   const double* d_col_vec,
 					   const int m,
 					   const int n)
 {
@@ -1385,7 +1279,7 @@ void device_normalize (double* d_mat,
 	int idx = tid_y*m + tid_x;
 	
 	// Apply the exponential function
-	d_mat[idx] = d_mat[idx]/sums[tid_x];
+	d_mat[idx] = d_mat[idx]/d_col_vec[tid_x];
 }
 
 /*
@@ -1400,12 +1294,12 @@ void gpu_softmax (const double* const mat_1,
 {
 	double *d_mat_1;
 	double *d_mat_2;
-	double *d_sums;
+	double *d_col_vec;
 
 	// Allocate the device memory
 	checkCudaErrors(cudaMalloc(&d_mat_1, m*n*sizeof(double)));
 	checkCudaErrors(cudaMalloc(&d_mat_2, m*n*sizeof(double)));
-	checkCudaErrors(cudaMalloc(&d_sums, m*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_col_vec, m*sizeof(double)));
 	
 	// Copy data from the host memory to the device memory
 	checkCudaErrors(cudaMemcpy(d_mat_1, mat_1, m*n*sizeof(double), cudaMemcpyHostToDevice));
@@ -1432,7 +1326,7 @@ void gpu_softmax (const double* const mat_1,
 	n_blocks.x = m;
 	n_blocks.y = 1;
 	
-	device_reduce_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_2, d_sums, m, n);
+	device_sum_row_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_2, d_col_vec, m, n);
 	
 	// Compute the block dimension
 	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
@@ -1442,7 +1336,7 @@ void gpu_softmax (const double* const mat_1,
 	n_blocks.x = (m + n_threads.x - 1)/n_threads.x;
 	n_blocks.y = (n + n_threads.y - 1)/n_threads.y;
 	
-	device_normalize <<<n_blocks, n_threads>>> (d_mat_2, d_sums, m, n);
+	device_normalize <<<n_blocks, n_threads>>> (d_mat_2, d_col_vec, m, n);
 	
 	// Copy data from the device memory to the host memory
 	checkCudaErrors(cudaMemcpy(mat_2, d_mat_2, m*n*sizeof(double), cudaMemcpyDeviceToHost));
@@ -1450,7 +1344,7 @@ void gpu_softmax (const double* const mat_1,
 	// Free the device memory
 	cudaFree(d_mat_1);
 	cudaFree(d_mat_2);
-	cudaFree(d_sums);
+	cudaFree(d_col_vec);
 }
 
 // Kernel to do reduction along columns
@@ -1494,7 +1388,6 @@ void device_sum_col_block(const double* const d_mat,
 	if (tid_x == 0)
 		d_row_vec[bid_y] = smem[tid_x];
 }
-
 
 /*
  * Sum elements of matrix in each column
@@ -1564,7 +1457,7 @@ void device_elementwise_mult (const double* const d_mat_da1,
 
 /*
  * Elementwise multiplication used to compute dW1
- * and returns a new matrix by GPU
+ * and return a new matrix by GPU
  *  mat_da1: input matrix da1
  *  mat_a1:  input matrix a1
  *  mat_dz1: output matrix dz1
@@ -1613,6 +1506,227 @@ void gpu_elementwise_mult (const double* const mat_da1,
 	cudaFree(d_mat_dz1);
 }
 
+// Kernel to compute the elementwise subtraction
+// C = A - alpha * B
+__global__
+void device_elementwise_subtract (const double alpha,
+								  const double* const d_mat_A,
+								  const double* const d_mat_B,
+								  double* d_mat_C,
+								  const int m,
+								  const int n)
+{
+	// Global thread index in the grid
+	const int tid_x = threadIdx.x + blockDim.x*blockIdx.x;
+	const int tid_y = threadIdx.y + blockDim.y*blockIdx.y;
+	
+	// If the thread is not inside the matrix D, return
+	if (tid_x >= m || tid_y >= n)
+	{
+		return;
+	}
+	
+	// Compute the index in the matrix
+	int idx = tid_y*m + tid_x;
+	
+	// Apply the sigmoid function
+	d_mat_C[idx] = d_mat_A[idx] - alpha*d_mat_B[idx];
+}
+
+/*
+ * Elementwise substraction between two matrices by GPU
+ * C = A - alpha * B
+ * A new matrix is returned
+ *  mat_A: input matrix A
+ *  mat_B: input matrix B
+ *  mat_C: output matrix C
+ *  m:     number of rows of the matrices
+ *  n:     number of columns of the matrices
+ */
+void gpu_elementwise_subtract (const double alpha,
+							   const double* const mat_A,
+							   const double* const mat_B,
+							   double* mat_C,
+							   const int m,
+							   const int n)
+{
+	double *d_mat_A;
+	double *d_mat_B;
+	double *d_mat_C;
+	
+	// Allocate the device memory
+	checkCudaErrors(cudaMalloc(&d_mat_A, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_B, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_C, m*n*sizeof(double)));
+	
+	// Copy data from the host memory to the device memory
+	checkCudaErrors(cudaMemcpy(d_mat_A, mat_A, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_B, mat_B, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_elementwise_subtract;
+	n_threads.y = BLOCK_SIZE_y_elementwise_subtract;
+	
+	// Compute the grid size
+	n_blocks.x = (m + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (n + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the elementwise substraction
+	device_elementwise_subtract <<<n_blocks, n_threads>>> (alpha, d_mat_A, d_mat_B, d_mat_C, m, n);
+	
+	// Copy data from the device memory to the host memory
+	checkCudaErrors(cudaMemcpy(mat_C, d_mat_C, m*n*sizeof(double), cudaMemcpyDeviceToHost));
+	
+	// Free the device memory
+	cudaFree(d_mat_A);
+	cudaFree(d_mat_B);
+	cudaFree(d_mat_C);
+}
+
+// Kernel to compute the diff matrix used in gpu_accel_feedforward_backprop()
+__global__
+void device_compute_diff (const double* const d_mat_yc,
+						  const double* const d_mat_y,
+						  double* d_mat_diff,
+						  const int m,
+						  const int n)
+{
+	// Global thread index in the grid
+	const int tid_x = threadIdx.x + blockDim.x*blockIdx.x;
+	const int tid_y = threadIdx.y + blockDim.y*blockIdx.y;
+	
+	// If the thread is not inside the matrix D, return
+	if (tid_x >= m || tid_y >= n)
+	{
+		return;
+	}
+	
+	// Compute the index in the matrix
+	int idx = tid_y*m + tid_x;
+	
+	// Apply the difference function
+	d_mat_diff[idx] = 1.0/((double) m) * (d_mat_yc[idx] - d_mat_y[idx]);
+}
+
+/*
+ * Compute the diff matrix
+ * and returns a new matrix by GPU
+ *  mat_yc:   input matrix yc
+ *  mat_y:    input matrix y
+ *  mat_diff: output matrix diff
+ *  m:     number of rows of the matrices
+ *  n:     number of columns of the matrices
+ */
+void gpu_compute_diff (const double* const mat_yc,
+					   const double* const mat_y,
+					   double* mat_diff,
+					   const int m,
+					   const int n)
+{
+	double *d_mat_yc;
+	double *d_mat_y;
+	double *d_mat_diff;
+	
+	// Allocate the device memory
+	checkCudaErrors(cudaMalloc(&d_mat_yc, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_y, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_diff, m*n*sizeof(double)));
+	
+	// Copy data from the host memory to the device memory
+	checkCudaErrors(cudaMemcpy(d_mat_yc, mat_yc, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_y, mat_y, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_DIFF;
+	n_threads.y = BLOCK_SIZE_y_DIFF;
+	
+	// Compute the grid size
+	n_blocks.x = (m + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (n + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_compute_diff <<<n_blocks, n_threads>>> (d_mat_yc, d_mat_y, d_mat_diff, m, n);
+	
+	// Copy data from the device memory to the host memory
+	checkCudaErrors(cudaMemcpy(mat_diff, d_mat_diff, m*n*sizeof(double), cudaMemcpyDeviceToHost));
+	
+	// Free the device memory
+	cudaFree(d_mat_yc);
+	cudaFree(d_mat_y);
+	cudaFree(d_mat_diff);
+}
+
+// Kernel to transpose a matrix
+__global__
+void device_transpose (double* d_mat_in, double* d_mat_out, const int m, const int n)
+{
+    const int row = threadIdx.x + blockDim.x * blockIdx.x;
+    const int col = threadIdx.y + blockDim.y * blockIdx.y;
+	
+	if (row >= m || col >= n)
+	{
+		return;
+	}
+	
+	const int idx_in = col*m + row;
+	const int idx_out = row*n + col;
+	
+    d_mat_out[idx_out] = d_mat_in[idx_in];
+}
+
+/*
+ * Transpose a matrix and return a new matrix by GPU
+ *  mat_1: input matrix 
+ *  mat_2: output matrix
+ *  m:     number of rows of the input matrix
+ *  n:     number of columns of the input matrix
+ */
+void gpu_transpose (const double* const mat_1,
+					double* mat_2,
+					const int m,
+					const int n)
+{
+	double *d_mat_1;
+	double *d_mat_2;
+	
+	// Allocate the device memory
+	checkCudaErrors(cudaMalloc(&d_mat_1, m*n*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_2, m*n*sizeof(double)));
+	
+	// Copy data from the host memory to the device memory
+	checkCudaErrors(cudaMemcpy(d_mat_1, mat_1, m*n*sizeof(double), cudaMemcpyHostToDevice));
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_transpose;
+	n_threads.y = BLOCK_SIZE_y_transpose;
+	
+	// Compute the grid size
+	n_blocks.x = (m + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (n + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the transpose
+	device_transpose <<<n_blocks, n_threads>>> (d_mat_1, d_mat_2, m, n);
+	
+	// Copy data from the device memory to the host memory
+	checkCudaErrors(cudaMemcpy(mat_2, d_mat_2, m*n*sizeof(double), cudaMemcpyDeviceToHost));
+	
+	// Free the device memory
+	cudaFree(d_mat_1);
+	cudaFree(d_mat_2);
+}
+
+/*
+ * Do the feedforward in GPU entirely
+ */
 void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_cols,
                             const double* const mat_W1, int W1_n_rows, int W1_n_cols,
                             const double* const mat_b1, int b1_n_rows, int b1_n_cols,
@@ -1725,8 +1839,8 @@ void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_col
 	 * Compute the softmax of z2
 	 */
 	
-	double* d_sums;
-	checkCudaErrors(cudaMalloc(&d_sums, z2_n_rows*sizeof(double)));
+	double* d_col_vec;
+	checkCudaErrors(cudaMalloc(&d_col_vec, z2_n_rows*sizeof(double)));
 	
 	// Compute the block dimension
 	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
@@ -1747,7 +1861,7 @@ void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_col
 	n_blocks.x = a2_n_rows;
 	n_blocks.y = 1;
 	
-	device_reduce_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_a2, d_sums, a2_n_rows, a2_n_cols);
+	device_sum_row_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_a2, d_col_vec, a2_n_rows, a2_n_cols);
 	
 	// Compute the block dimension
 	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
@@ -1757,9 +1871,9 @@ void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_col
 	n_blocks.x = (a2_n_rows + n_threads.x - 1)/n_threads.x;
 	n_blocks.y = (a2_n_cols + n_threads.y - 1)/n_threads.y;
 	
-	device_normalize <<<n_blocks, n_threads>>> (d_mat_a2, d_sums, a2_n_rows, a2_n_cols);
+	device_normalize <<<n_blocks, n_threads>>> (d_mat_a2, d_col_vec, a2_n_rows, a2_n_cols);
 	
-	cudaFree(d_sums);
+	cudaFree(d_col_vec);
 	
 	// Copy data from the device memory to the host memory
 	checkCudaErrors(cudaMemcpy(mat_z1, d_mat_z1, z1_n_rows*z1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
@@ -1779,6 +1893,9 @@ void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_col
 	cudaFree(d_mat_a2);
 }
 
+/*
+ * Do the backpropagation in GPU entirely
+ */
 void gpu_accel_backprop (const double reg,
 						 const double* const mat_diff, const int diff_n_rows, const int diff_n_cols,
                          const double* const mat_X, const int X_n_rows, const int X_n_cols,
@@ -1954,4 +2071,1162 @@ void gpu_accel_backprop (const double reg,
 	cudaFree(d_mat_dW2);
 	cudaFree(d_mat_db1);
 	cudaFree(d_mat_db2);
+}
+
+/*
+ * Do the feedforward and backpropagation in GPU entirely
+ * Since this function combines both the feedforward and
+ * backpropagation algorithm, some communication cost over
+ * the the PCI express is saved such as the cost of transfering
+ * the data of sub-matrix X, matrices W1 and W2
+ * the second GEMM algorithm is used
+ */
+void gpu_accel_feedforward_backprop_1 (const double reg,
+                                       const double* const mat_X, int X_n_rows, int X_n_cols,
+                                       const double* const mat_y, int y_n_rows, int y_n_cols,
+                                       const double* const mat_W1, int W1_n_rows, int W1_n_cols,
+                                       const double* const mat_b1, int b1_n_rows, int b1_n_cols,
+                                       double* mat_z1, int z1_n_rows, int z1_n_cols,
+                                       double* mat_a1, int a1_n_rows, int a1_n_cols,
+                                       const double* const mat_W2, int W2_n_rows, int W2_n_cols,
+                                       const double* const mat_b2, int b2_n_rows, int b2_n_cols,
+                                       double* mat_z2, int z2_n_rows, int z2_n_cols,
+                                       double* mat_a2, int a2_n_rows, int a2_n_cols,
+                                       double* mat_dW1, const int dW1_n_rows, const int dW1_n_cols,
+                                       double* mat_dW2, const int dW2_n_rows, const int dW2_n_cols,
+                                       double* mat_db1, const int db1_n_cols,
+                                       double* mat_db2, const int db2_n_cols)
+{
+	double* d_mat_X;
+	double* d_mat_W1;
+	double* d_mat_b1;
+	double* d_mat_z1;
+	double* d_mat_a1;
+	double* d_mat_W2;
+	double* d_mat_b2;
+	double* d_mat_z2;
+	double* d_mat_a2;
+	
+	double* d_mat_dz1;
+	double* d_mat_da1;
+	double* d_mat_dW1;
+	double* d_mat_dW2;
+	double* d_mat_db1;
+	double* d_mat_db2;
+	
+	double* d_mat_y;
+	double* d_mat_diff;
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	/*
+	 * Allocate the device memory
+	 */
+	
+	checkCudaErrors(cudaMalloc(&d_mat_X, X_n_rows*X_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W1, W1_n_rows*W1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b1, b1_n_rows*b1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z1, z1_n_rows*z1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_a1, a1_n_rows*a1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W2, W2_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b2, b2_n_rows*b2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z2, z2_n_rows*z2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_a2, a2_n_rows*a2_n_cols*sizeof(double)));
+	
+	checkCudaErrors(cudaMalloc(&d_mat_dz1, y_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_da1, y_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db1, db1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db2, db2_n_cols*sizeof(double)));
+	
+	checkCudaErrors(cudaMalloc(&d_mat_y, y_n_rows*y_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_diff, y_n_rows*y_n_cols*sizeof(double)));
+	
+	/*
+	 * Copy data from the host memory to the device memory
+	 */
+	
+	checkCudaErrors(cudaMemcpy(d_mat_X, mat_X, X_n_rows*X_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W1, mat_W1, W1_n_rows*W1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_b1, mat_b1, b1_n_rows*b1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W2, mat_W2, W2_n_rows*W2_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_b2, mat_b2, b2_n_rows*b2_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	
+	checkCudaErrors(cudaMemcpy(d_mat_y, mat_y, y_n_rows*y_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	
+	/*
+	 * Do the feedforward for z1
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (z1_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z1_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    1.0,
+														    d_mat_X,
+														    d_mat_W1,
+														    d_mat_b1,
+														    d_mat_z1,
+														    X_n_rows,
+														    X_n_cols,
+														    W1_n_rows,
+														    false,
+														    true);
+		
+	/*
+	 * Compute the sigmoid of z1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SIGMOID;
+	n_threads.y = BLOCK_SIZE_y_SIGMOID;
+	
+	// Compute the grid size
+	n_blocks.x = (z1_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z1_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_sigmoid <<<n_blocks, n_threads>>> (d_mat_z1, d_mat_a1, z1_n_rows, z1_n_cols);
+	
+	/*
+	 * Do the feedforward for z2
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (z2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    1.0,
+														    d_mat_a1,
+														    d_mat_W2,
+														    d_mat_b2,
+														    d_mat_z2,
+														    a1_n_rows,
+														    a1_n_cols,
+														    W2_n_rows,
+														    false,
+														    true);
+	
+	/*
+	 * Compute the softmax of z2
+	 */
+	
+	double* d_col_vec;
+	checkCudaErrors(cudaMalloc(&d_col_vec, z2_n_rows*sizeof(double)));
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (z2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (z2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to compute the elementwise exponentinal function
+	device_exponent <<<n_blocks, n_threads>>> (d_mat_z2, d_mat_a2, z2_n_rows, z2_n_cols);
+	
+	// Compute the block dimension
+	n_threads.x = 1;
+	n_threads.y = BLOCK_SIZE_REDUCTION;
+	
+	// Compute the grid size
+	n_blocks.x = a2_n_rows;
+	n_blocks.y = 1;
+	
+	device_sum_row_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_a2, d_col_vec, a2_n_rows, a2_n_cols);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (a2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (a2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	device_normalize <<<n_blocks, n_threads>>> (d_mat_a2, d_col_vec, a2_n_rows, a2_n_cols);
+	
+	cudaFree(d_col_vec);
+	
+	/*
+	 * Compute d_mat_diff
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_DIFF;
+	n_threads.y = BLOCK_SIZE_y_DIFF;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (y_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_compute_diff <<<n_blocks, n_threads>>> (d_mat_a2, d_mat_y, d_mat_diff, y_n_rows, y_n_cols);
+	
+	/*
+	 * Compute dW2
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (dW2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (dW2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    reg,
+														    d_mat_diff,
+														    d_mat_a1,
+														    d_mat_W2,
+														    d_mat_dW2,
+														    y_n_cols,
+														    y_n_rows,
+														    a1_n_cols,
+														    true,
+														    false);
+	
+	/*
+	 * Compute dW1
+	 */
+	
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    0.0,
+														    d_mat_diff,
+														    d_mat_W2,
+														    d_mat_da1,
+														    d_mat_da1,
+														    y_n_rows,
+														    y_n_cols,
+														    W2_n_cols,
+														    false,
+														    false);
+
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_elementwise_mult;
+	n_threads.y = BLOCK_SIZE_y_elementwise_mult;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the elementwise multiplication
+	device_elementwise_mult <<<n_blocks, n_threads>>> (d_mat_da1, d_mat_a1, d_mat_dz1, y_n_rows, W2_n_cols);
+	
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (W2_n_cols + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (X_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads>>> (1.0,
+														    reg,
+														    d_mat_dz1,
+														    d_mat_X,
+														    d_mat_W1,
+														    d_mat_dW1,
+														    W2_n_cols,
+														    y_n_rows,
+														    X_n_cols,
+														    true,
+														    false);
+	
+	/*
+	 * Compute db1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = y_n_rows;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_diff, d_mat_db2, y_n_cols, y_n_rows);
+	
+	/*
+	 * Compute db2
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = W2_n_cols;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_dz1, d_mat_db1, y_n_rows, W2_n_cols);
+	
+	/*
+	 * Copy data from the device memory to the host memory
+	 */
+	
+	checkCudaErrors(cudaMemcpy(mat_z1, d_mat_z1, z1_n_rows*z1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_a1, d_mat_a1, a1_n_rows*a1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_z2, d_mat_z2, z2_n_rows*z2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_a2, d_mat_a2, a2_n_rows*a2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	
+	checkCudaErrors(cudaMemcpy(mat_dW1, d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_dW2, d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_db1, d_mat_db1, db1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_db2, d_mat_db2, db2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+		
+	/*
+	 * Free the device memory
+	 */
+	
+	cudaFree(d_mat_X);
+	cudaFree(d_mat_W1);
+	cudaFree(d_mat_b1);
+	cudaFree(d_mat_z1);
+	cudaFree(d_mat_a1);
+	cudaFree(d_mat_W2);
+	cudaFree(d_mat_b2);
+	cudaFree(d_mat_z2);
+	cudaFree(d_mat_a2);
+	
+	cudaFree(d_mat_dz1);
+	cudaFree(d_mat_da1);
+	cudaFree(d_mat_dW1);
+	cudaFree(d_mat_dW2);
+	cudaFree(d_mat_db1);
+	cudaFree(d_mat_db2);
+	
+	cudaFree(d_mat_y);
+	cudaFree(d_mat_diff);
+}
+
+/*
+ * The stream version of gpu_accel_feedforward_backprop_2
+ * This function is not preferred since the cost of pinning
+ * host memory is large
+ */
+void gpu_accel_feedforward_backprop_2_w_stream (const double reg,
+											    double* mat_X, int X_n_rows, int X_n_cols,
+												double* mat_y, int y_n_rows, int y_n_cols,
+												double* mat_W1, int W1_n_rows, int W1_n_cols,
+												double* mat_b1, int b1_n_rows, int b1_n_cols,
+												double* mat_W2, int W2_n_rows, int W2_n_cols,
+												double* mat_b2, int b2_n_rows, int b2_n_cols,
+												double* mat_a2, int a2_n_rows, int a2_n_cols,
+												double* mat_dW1, const int dW1_n_rows, const int dW1_n_cols,
+												double* mat_dW2, const int dW2_n_rows, const int dW2_n_cols,
+												double* mat_db1, const int db1_n_cols,
+												double* mat_db2, const int db2_n_cols)
+{
+	double* d_mat_X;
+	double* d_mat_W1;
+	double* d_mat_b1;
+	double* d_mat_z1;
+	double* d_mat_W2;
+	double* d_mat_b2;
+	double* d_mat_z2;
+	
+	double* d_mat_dz1;
+	double* d_mat_da1;
+	double* d_mat_dW1;
+	double* d_mat_dW2;
+	double* d_mat_db1;
+	double* d_mat_db2;
+	
+	double* d_mat_y;
+	double* d_mat_diff;
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	/*
+	 * Create user streams
+	 */
+	cudaStream_t stream1, stream2;
+	cudaStreamCreate(&stream1);
+	cudaStreamCreate(&stream2);
+	
+	/*
+	 * Allocate the device memory
+	 */
+	
+	checkCudaErrors(cudaMalloc(&d_mat_X, X_n_rows*X_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W1, W1_n_rows*W1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b1, b1_n_rows*b1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z1, X_n_rows*W1_n_rows*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W2, W2_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b2, b2_n_rows*b2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z2, X_n_rows*W2_n_rows*sizeof(double)));
+	
+	checkCudaErrors(cudaMalloc(&d_mat_dz1, y_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_da1, y_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db1, db1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db2, db2_n_cols*sizeof(double)));
+	
+	checkCudaErrors(cudaMalloc(&d_mat_y, y_n_rows*y_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_diff, y_n_rows*y_n_cols*sizeof(double)));
+	
+	/*
+	 * Pin the host memory
+	 */
+	
+	checkCudaErrors(cudaHostRegister(mat_X, X_n_rows*X_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_W1, W1_n_rows*W1_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_b1, b1_n_rows*b1_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_W2, W2_n_rows*W2_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_b2, b2_n_rows*b2_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_y, y_n_rows*y_n_cols*sizeof(double), 0));
+	
+	checkCudaErrors(cudaHostRegister(mat_a2, a2_n_rows*a2_n_cols*sizeof(double), 0));
+	
+	checkCudaErrors(cudaHostRegister(mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_db1, db1_n_cols*sizeof(double), 0));
+	checkCudaErrors(cudaHostRegister(mat_db2, db2_n_cols*sizeof(double), 0));
+	
+	/*
+	 * Copy data from the host memory to the device memory
+	 */
+	
+	checkCudaErrors(cudaMemcpyAsync(d_mat_X, mat_X, X_n_rows*X_n_cols*sizeof(double), cudaMemcpyHostToDevice, stream1));
+	checkCudaErrors(cudaMemcpyAsync(d_mat_W1, mat_W1, W1_n_rows*W1_n_cols*sizeof(double), cudaMemcpyHostToDevice, stream1));
+	checkCudaErrors(cudaMemcpyAsync(d_mat_b1, mat_b1, b1_n_rows*b1_n_cols*sizeof(double), cudaMemcpyHostToDevice, stream1));
+	
+	checkCudaErrors(cudaMemcpyAsync(d_mat_W2, mat_W2, W2_n_rows*W2_n_cols*sizeof(double), cudaMemcpyHostToDevice, stream2));
+	checkCudaErrors(cudaMemcpyAsync(d_mat_b2, mat_b2, b2_n_rows*b2_n_cols*sizeof(double), cudaMemcpyHostToDevice, stream2));
+	
+	/*
+	 * Do the feedforward for z1
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W1_n_rows + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads, 0, stream1>>> (1.0,
+														    1.0,
+														    d_mat_X,
+														    d_mat_W1,
+														    d_mat_b1,
+														    d_mat_z1,
+														    X_n_rows,
+														    X_n_cols,
+														    W1_n_rows,
+														    false,
+														    true);
+		
+	/*
+	 * Compute the sigmoid of z1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SIGMOID;
+	n_threads.y = BLOCK_SIZE_y_SIGMOID;
+	
+	// Compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W1_n_rows + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_sigmoid <<<n_blocks, n_threads, 0, stream1>>> (d_mat_z1, d_mat_z1, X_n_rows, W1_n_rows);
+	
+	// Synchronize to make sure d_mat_W2, d_mat_b2 are already loaded
+	cudaDeviceSynchronize();
+	checkCudaErrors(cudaMemcpyAsync(d_mat_y, mat_y, y_n_rows*y_n_cols*sizeof(double), cudaMemcpyHostToDevice, stream2));
+	
+	/*
+	 * Do the feedforward for z2
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_rows + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads, 0, stream1>>> (1.0,
+														    1.0,
+														    d_mat_z1,
+														    d_mat_W2,
+														    d_mat_b2,
+														    d_mat_z2,
+														    X_n_rows,
+														    W1_n_rows,
+														    W2_n_rows,
+														    false,
+														    true);
+	
+	/*
+	 * Compute the softmax of z2
+	 */
+	
+	double* d_col_vec;
+	checkCudaErrors(cudaMalloc(&d_col_vec, X_n_rows*sizeof(double)));
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_rows + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to compute the elementwise exponentinal function
+	device_exponent <<<n_blocks, n_threads, 0, stream1>>> (d_mat_z2, d_mat_z2, X_n_rows, W2_n_rows);
+	
+	// Compute the block dimension
+	n_threads.x = 1;
+	n_threads.y = BLOCK_SIZE_REDUCTION;
+	
+	// Compute the grid size
+	n_blocks.x = a2_n_rows;
+	n_blocks.y = 1;
+	
+	device_sum_row_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads, 0, stream1>>> (d_mat_z2, d_col_vec, a2_n_rows, a2_n_cols);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (a2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (a2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	device_normalize <<<n_blocks, n_threads, 0, stream1>>> (d_mat_z2, d_col_vec, a2_n_rows, a2_n_cols);
+	
+	cudaFree(d_col_vec);
+	
+	// Synchronize to make sure d_mat_y is already loaded
+	cudaDeviceSynchronize();
+	
+	/*
+	 * Compute d_mat_diff
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_DIFF;
+	n_threads.y = BLOCK_SIZE_y_DIFF;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (y_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_compute_diff <<<n_blocks, n_threads, 0, stream1>>> (d_mat_z2, d_mat_y, d_mat_diff, y_n_rows, y_n_cols);
+	
+	/*
+	 * Compute dW2
+	 */
+	
+	// Set the size of the sub-block
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (dW2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (dW2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads, 0, stream1>>> (1.0,
+														    reg,
+														    d_mat_diff,
+														    d_mat_z1,
+														    d_mat_W2,
+														    d_mat_dW2,
+														    y_n_cols,
+														    y_n_rows,
+														    W1_n_rows,
+														    true,
+														    false);
+	
+	/*
+	 * Compute dW1
+	 */
+	
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads, 0, stream1>>> (1.0,
+														    0.0,
+														    d_mat_diff,
+														    d_mat_W2,
+														    d_mat_da1,
+														    d_mat_da1,
+														    y_n_rows,
+														    y_n_cols,
+														    W2_n_cols,
+														    false,
+														    false);
+
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_elementwise_mult;
+	n_threads.y = BLOCK_SIZE_y_elementwise_mult;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the elementwise multiplication
+	device_elementwise_mult <<<n_blocks, n_threads, 0, stream1>>> (d_mat_da1, d_mat_z1, d_mat_dz1, y_n_rows, W2_n_cols);
+	
+	n_threads.x = BLOCK_SIZE_2;
+	n_threads.y = BLOCK_SIZE_2;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (W2_n_cols + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (X_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_2 <BLOCK_SIZE_2> <<<n_blocks, n_threads, 0, stream1>>> (1.0,
+														    reg,
+														    d_mat_dz1,
+														    d_mat_X,
+														    d_mat_W1,
+														    d_mat_dW1,
+														    W2_n_cols,
+														    y_n_rows,
+														    X_n_cols,
+														    true,
+														    false);
+	
+	/*
+	 * Compute db1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = y_n_rows;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads, 0, stream1>>> (d_mat_diff, d_mat_db2, y_n_cols, y_n_rows);
+	
+	/*
+	 * Compute db2
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = W2_n_cols;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads, 0, stream1>>> (d_mat_dz1, d_mat_db1, y_n_rows, W2_n_cols);
+	
+	/*
+	 * Copy data from the device memory to the host memory
+	 */
+	
+	cudaDeviceSynchronize();
+	
+	checkCudaErrors(cudaMemcpyAsync(mat_dW1, d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double), cudaMemcpyDeviceToHost, stream2));
+	checkCudaErrors(cudaMemcpyAsync(mat_a2, d_mat_z2, a2_n_rows*a2_n_cols*sizeof(double), cudaMemcpyDeviceToHost, stream2));
+	checkCudaErrors(cudaMemcpyAsync(mat_db1, d_mat_db1, db1_n_cols*sizeof(double), cudaMemcpyDeviceToHost, stream2));
+	checkCudaErrors(cudaMemcpyAsync(mat_db2, d_mat_db2, db2_n_cols*sizeof(double), cudaMemcpyDeviceToHost, stream2));
+	checkCudaErrors(cudaMemcpyAsync(mat_dW2, d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double), cudaMemcpyDeviceToHost, stream2));
+		
+	/*
+	 * Free the device memory
+	 */
+	
+	cudaFree(d_mat_X);
+	cudaFree(d_mat_W1);
+	cudaFree(d_mat_b1);
+	cudaFree(d_mat_z1);
+	cudaFree(d_mat_W2);
+	cudaFree(d_mat_b2);
+	cudaFree(d_mat_z2);
+	
+	cudaFree(d_mat_dz1);
+	cudaFree(d_mat_da1);
+	cudaFree(d_mat_dW1);
+	cudaFree(d_mat_dW2);
+	cudaFree(d_mat_db1);
+	cudaFree(d_mat_db2);
+	
+	cudaFree(d_mat_y);
+	cudaFree(d_mat_diff);
+	
+	/*
+	 * Unpin the host memory
+	 */
+	
+	checkCudaErrors(cudaHostUnregister(mat_X));
+	checkCudaErrors(cudaHostUnregister(mat_W1));
+	checkCudaErrors(cudaHostUnregister(mat_b1));
+	checkCudaErrors(cudaHostUnregister(mat_W2));
+	checkCudaErrors(cudaHostUnregister(mat_b2));
+	checkCudaErrors(cudaHostUnregister(mat_y));
+	
+	checkCudaErrors(cudaHostUnregister(mat_a2));
+	
+	checkCudaErrors(cudaHostUnregister(mat_dW1));
+	checkCudaErrors(cudaHostUnregister(mat_dW2));
+	checkCudaErrors(cudaHostUnregister(mat_db1));
+	checkCudaErrors(cudaHostUnregister(mat_db2));
+	
+	/*
+	 * Destroy user streams
+	 */
+	cudaStreamDestroy(stream1);
+	cudaStreamDestroy(stream2);	
+}
+
+/*
+ * Do the feedforward and backpropagation in GPU entirely
+ * Compared to gpu_accel_feedforward_backprop_1, this function
+ * further minimizes the communication cost. Redundant communication
+ * such as transferring back data of z1, a1, z2 from GPU
+ * Also, the third GEMM algorithm, which is faster, is used
+ */
+void gpu_accel_feedforward_backprop_2 (const double reg,
+                                       double* mat_X, int X_n_rows, int X_n_cols,
+                                       double* mat_y, int y_n_rows, int y_n_cols,
+                                       double* mat_W1, int W1_n_rows, int W1_n_cols,
+                                       double* mat_b1, int b1_n_rows, int b1_n_cols,
+                                       double* mat_W2, int W2_n_rows, int W2_n_cols,
+                                       double* mat_b2, int b2_n_rows, int b2_n_cols,
+                                       double* mat_a2, int a2_n_rows, int a2_n_cols,
+                                       double* mat_dW1, const int dW1_n_rows, const int dW1_n_cols,
+                                       double* mat_dW2, const int dW2_n_rows, const int dW2_n_cols,
+                                       double* mat_db1, const int db1_n_cols,
+                                       double* mat_db2, const int db2_n_cols)
+{
+	double* d_mat_X;
+	double* d_mat_W1;
+	double* d_mat_b1;
+	double* d_mat_z1;
+	double* d_mat_W2;
+	double* d_mat_b2;
+	double* d_mat_z2;
+	
+	double* d_mat_dz1;
+	double* d_mat_da1;
+	double* d_mat_dW1;
+	double* d_mat_dW2;
+	double* d_mat_db1;
+	double* d_mat_db2;
+	
+	double* d_mat_y;
+	double* d_mat_diff;
+	
+	double* d_mat_W1_t;
+	double* d_mat_W2_t;
+	double* d_mat_diff_t;
+	double* d_mat_dz1_t;
+	
+	dim3 n_threads(0, 0);
+	dim3 n_blocks(0, 0);
+	
+	/*
+	 * Allocate the device memory
+	 */
+	
+	checkCudaErrors(cudaMalloc(&d_mat_X, X_n_rows*X_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W1, W1_n_rows*W1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b1, b1_n_rows*b1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z1, X_n_rows*W1_n_rows*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W2, W2_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_b2, b2_n_rows*b2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_z2, X_n_rows*W2_n_rows*sizeof(double)));
+	
+	checkCudaErrors(cudaMalloc(&d_mat_dz1, y_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_da1, y_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db1, db1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_db2, db2_n_cols*sizeof(double)));
+	
+	checkCudaErrors(cudaMalloc(&d_mat_y, y_n_rows*y_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_diff, y_n_rows*y_n_cols*sizeof(double)));
+	
+	checkCudaErrors(cudaMalloc(&d_mat_W1_t, W1_n_rows*W1_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_W2_t, W2_n_rows*W2_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_diff_t, y_n_rows*y_n_cols*sizeof(double)));
+	checkCudaErrors(cudaMalloc(&d_mat_dz1_t, y_n_rows*W2_n_cols*sizeof(double)));
+	
+	/*
+	 * Copy data from the host memory to the device memory
+	 */
+	
+	checkCudaErrors(cudaMemcpy(d_mat_X, mat_X, X_n_rows*X_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W1, mat_W1, W1_n_rows*W1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_b1, mat_b1, b1_n_rows*b1_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_W2, mat_W2, W2_n_rows*W2_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(d_mat_b2, mat_b2, b2_n_rows*b2_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	
+	checkCudaErrors(cudaMemcpy(d_mat_y, mat_y, y_n_rows*y_n_cols*sizeof(double), cudaMemcpyHostToDevice));
+	
+	/*
+	 * Do the feedforward for z1
+	 */
+	
+	// Transpose d_mat_W1
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_transpose;
+	n_threads.y = BLOCK_SIZE_y_transpose;
+	
+	// Compute the grid size
+	n_blocks.x = (W1_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W1_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the transpose
+	device_transpose <<<n_blocks, n_threads>>> (d_mat_W1, d_mat_W1_t, W1_n_rows, W1_n_cols);
+	
+	// Set the size of each block
+	n_threads.x = BLOCK_SIZE_x_3;
+	n_threads.y = BLOCK_SIZE_y_3;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x*n_threads.y - 1)/(n_threads.x*n_threads.y);
+	n_blocks.y = (W1_n_rows + n_threads.x - 1)/n_threads.x;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_3 <BLOCK_SIZE_x_3, BLOCK_SIZE_y_3> <<<n_blocks, n_threads>>> (1.0,
+																			  1.0,
+																			  d_mat_X,
+																			  d_mat_W1_t,
+																			  d_mat_b1,
+																			  d_mat_z1,
+																			  X_n_rows,
+																			  X_n_cols,
+																			  W1_n_rows,
+																			  false,
+																			  false);
+		
+	/*
+	 * Compute the sigmoid of z1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SIGMOID;
+	n_threads.y = BLOCK_SIZE_y_SIGMOID;
+	
+	// Compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W1_n_rows + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_sigmoid <<<n_blocks, n_threads>>> (d_mat_z1, d_mat_z1, X_n_rows, W1_n_rows);
+	
+	/*
+	 * Do the feedforward for z2
+	 */
+	
+	// Transpose d_mat_W2
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_transpose;
+	n_threads.y = BLOCK_SIZE_y_transpose;
+	
+	// Compute the grid size
+	n_blocks.x = (W2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the transpose
+	device_transpose <<<n_blocks, n_threads>>> (d_mat_W2, d_mat_W2_t, W2_n_rows, W2_n_cols);
+	
+	// Set the size of each block
+	n_threads.x = BLOCK_SIZE_x_3;
+	n_threads.y = BLOCK_SIZE_y_3;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x*n_threads.y - 1)/(n_threads.x*n_threads.y);
+	n_blocks.y = (W2_n_rows + n_threads.x - 1)/n_threads.x;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_3 <BLOCK_SIZE_x_3, BLOCK_SIZE_y_3> <<<n_blocks, n_threads>>> (1.0,
+																			  1.0,
+																			  d_mat_z1,
+																			  d_mat_W2_t,
+																			  d_mat_b2,
+																			  d_mat_z2,
+																			  X_n_rows,
+																			  W1_n_rows,
+																			  W2_n_rows,
+																			  false,
+																			  false);
+	
+	/*
+	 * Compute the softmax of z2
+	 */
+	
+	double* d_col_vec;
+	checkCudaErrors(cudaMalloc(&d_col_vec, X_n_rows*sizeof(double)));
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (X_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_rows + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to compute the elementwise exponentinal function
+	device_exponent <<<n_blocks, n_threads>>> (d_mat_z2, d_mat_z2, X_n_rows, W2_n_rows);
+	
+	// Compute the block dimension
+	n_threads.x = 1;
+	n_threads.y = BLOCK_SIZE_REDUCTION;
+	
+	// Compute the grid size
+	n_blocks.x = a2_n_rows;
+	n_blocks.y = 1;
+	
+	device_sum_row_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_z2, d_col_vec, a2_n_rows, a2_n_cols);
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_SOFTMAX;
+	n_threads.y = BLOCK_SIZE_y_SOFTMAX;
+	
+	// Compute the grid size
+	n_blocks.x = (a2_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (a2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	device_normalize <<<n_blocks, n_threads>>> (d_mat_z2, d_col_vec, a2_n_rows, a2_n_cols);
+	
+	cudaFree(d_col_vec);
+	
+	/*
+	 * Compute d_mat_diff
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_DIFF;
+	n_threads.y = BLOCK_SIZE_y_DIFF;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (y_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to apply the sigmoid function
+	device_compute_diff <<<n_blocks, n_threads>>> (d_mat_z2, d_mat_y, d_mat_diff, y_n_rows, y_n_cols);
+	
+	/*
+	 * Compute dW2
+	 */
+	
+	// Transpose d_mat_diff
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_transpose;
+	n_threads.y = BLOCK_SIZE_y_transpose;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (y_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the transpose
+	device_transpose <<<n_blocks, n_threads>>> (d_mat_diff, d_mat_diff_t, y_n_rows, y_n_cols);
+	
+	// Set the size of each block
+	n_threads.x = BLOCK_SIZE_x_3;
+	n_threads.y = BLOCK_SIZE_y_3;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (dW2_n_rows + n_threads.x*n_threads.y - 1)/(n_threads.x*n_threads.y);
+	n_blocks.y = (dW2_n_cols + n_threads.x - 1)/n_threads.x;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_3 <BLOCK_SIZE_x_3, BLOCK_SIZE_y_3> <<<n_blocks, n_threads>>> (1.0,
+																			  reg,
+																			  d_mat_diff_t,
+																			  d_mat_z1,
+																			  d_mat_W2,
+																			  d_mat_dW2,
+																			  y_n_cols,
+																			  y_n_rows,
+																			  W1_n_rows,
+																			  false,
+																			  false);
+	
+	/*
+	 * Compute dW1
+	 */
+	
+	// Set the size of each block
+	n_threads.x = BLOCK_SIZE_x_3;
+	n_threads.y = BLOCK_SIZE_y_3;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x*n_threads.y - 1)/(n_threads.x*n_threads.y);
+	n_blocks.y = (W2_n_cols + n_threads.x - 1)/n_threads.x;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_3 <BLOCK_SIZE_x_3, BLOCK_SIZE_y_3> <<<n_blocks, n_threads>>> (1.0,
+																			  0.0,
+																			  d_mat_diff,
+																			  d_mat_W2,
+																			  d_mat_da1,
+																			  d_mat_da1,
+																			  y_n_rows,
+																			  y_n_cols,
+																			  W2_n_cols,
+																			  false,
+																			  false);
+
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_elementwise_mult;
+	n_threads.y = BLOCK_SIZE_y_elementwise_mult;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the elementwise multiplication
+	device_elementwise_mult <<<n_blocks, n_threads>>> (d_mat_da1, d_mat_z1, d_mat_dz1, y_n_rows, W2_n_cols);
+	
+	// Transpose d_mat_dz1
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_x_transpose;
+	n_threads.y = BLOCK_SIZE_y_transpose;
+	
+	// Compute the grid size
+	n_blocks.x = (y_n_rows + n_threads.x - 1)/n_threads.x;
+	n_blocks.y = (W2_n_cols + n_threads.y - 1)/n_threads.y;
+	
+	// Launch the kernel to do the transpose
+	device_transpose <<<n_blocks, n_threads>>> (d_mat_dz1, d_mat_dz1_t, y_n_rows, W2_n_cols);
+	
+	// Set the size of each block
+	n_threads.x = BLOCK_SIZE_x_3;
+	n_threads.y = BLOCK_SIZE_y_3;
+	
+	// Assume each dimension of the block is less than 65536
+	// and compute the grid size
+	n_blocks.x = (W2_n_cols + n_threads.x*n_threads.y - 1)/(n_threads.x*n_threads.y);
+	n_blocks.y = (X_n_cols + n_threads.x - 1)/n_threads.x;
+	
+	// Launch the kernel to do GEMM
+	device_GEMM_3 <BLOCK_SIZE_x_3, BLOCK_SIZE_y_3> <<<n_blocks, n_threads>>> (1.0,
+																			  reg,
+																			  d_mat_dz1_t,
+																			  d_mat_X,
+																			  d_mat_W1,
+																			  d_mat_dW1,
+																			  W2_n_cols,
+																			  y_n_rows,
+																			  X_n_cols,
+																			  false,
+																			  false);
+	
+	/*
+	 * Compute db1
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = y_n_rows;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_diff, d_mat_db2, y_n_cols, y_n_rows);
+	
+	/*
+	 * Compute db2
+	 */
+	
+	// Compute the block dimension
+	n_threads.x = BLOCK_SIZE_REDUCTION;
+	n_threads.y = 1;
+	
+	// Compute the grid size
+	n_blocks.x = 1;
+	n_blocks.y = W2_n_cols;
+	
+	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_dz1, d_mat_db1, y_n_rows, W2_n_cols);
+	
+	/*
+	 * Copy data from the device memory to the host memory
+	 */
+	
+	checkCudaErrors(cudaMemcpy(mat_a2, d_mat_z2, a2_n_rows*a2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	
+	checkCudaErrors(cudaMemcpy(mat_dW1, d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_dW2, d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_db1, d_mat_db1, db1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_db2, d_mat_db2, db2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+		
+	/*
+	 * Free the device memory
+	 */
+	
+	cudaFree(d_mat_X);
+	cudaFree(d_mat_W1);
+	cudaFree(d_mat_b1);
+	cudaFree(d_mat_z1);
+	cudaFree(d_mat_W2);
+	cudaFree(d_mat_b2);
+	cudaFree(d_mat_z2);
+	
+	cudaFree(d_mat_dz1);
+	cudaFree(d_mat_da1);
+	cudaFree(d_mat_dW1);
+	cudaFree(d_mat_dW2);
+	cudaFree(d_mat_db1);
+	cudaFree(d_mat_db2);
+	
+	cudaFree(d_mat_y);
+	cudaFree(d_mat_diff);
+	
+	cudaFree(d_mat_W1_t);
+	cudaFree(d_mat_W2_t);
+	cudaFree(d_mat_diff_t);
+	cudaFree(d_mat_dz1_t);
 }

@@ -48,7 +48,7 @@ int useless_gpu_add_one (int t);
 /*
  * Algorithm 0 of general matrix-matrix multiplication (GEMM)
  * GEMM operation is expressed as D = alpha*op(A)*op(B) + beta*C
- * One thread is used to calculate one element in matrix D
+ * One thread is used to calculate one element in matrix D natively
  * 1D blocks are used
  * natively
  * 
@@ -193,7 +193,7 @@ void gpu_sum_col (const double* const mat,
 
 /*
  * Elementwise multiplication used to compute dW1
- * and returns a new matrix by GPU
+ * and return a new matrix by GPU
  *  mat_da1: input matrix da1
  *  mat_a1:  input matrix a1
  *  mat_dz1: output matrix dz1
@@ -206,6 +206,53 @@ void gpu_elementwise_mult (const double* const mat_da1,
 						   const int m,
 						   const int n);
 
+/*
+ * Elementwise substraction between two matrices by GPU
+ * C = A - alpha * B
+ * A new matrix is returned
+ *  mat_A: input matrix A
+ *  mat_B: input matrix B
+ *  mat_C: output matrix C
+ *  m:     number of rows of the matrices
+ *  n:     number of columns of the matrices
+ */
+void gpu_elementwise_subtract (const double alpha,
+							   const double* const mat_A,
+							   const double* const mat_B,
+							   double* mat_C,
+							   const int m,
+							   const int n);
+
+/*
+ * Compute the diff matrix
+ * and return a new matrix by GPU
+ *  mat_yc:   input matrix yc
+ *  mat_y:    input matrix y
+ *  mat_diff: output matrix diff
+ *  m:     number of rows of the matrices
+ *  n:     number of columns of the matrices
+ */
+void gpu_compute_diff (const double* const mat_yc,
+					   const double* const mat_y,
+					   double* mat_diff,
+					   const int m,
+					   const int n);
+
+/*
+ * Transpose a matrix and return a new matrix by GPU
+ *  mat_1: input matrix 
+ *  mat_2: output matrix
+ *  m:     number of rows of the input matrix
+ *  n:     number of columns of the input matrix
+ */
+void gpu_transpose (const double* const mat_1,
+					double* mat_2,
+					const int m,
+					const int n);
+
+/*
+ * Do the feedforward in GPU entirely
+ */
 void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_cols,
                             const double* const mat_W1, int W1_n_rows, int W1_n_cols,
                             const double* const mat_b1, int b1_n_rows, int b1_n_cols,
@@ -216,6 +263,9 @@ void gpu_accel_feedforward (const double* const mat_X, int X_n_rows, int X_n_col
                             double* mat_z2, int z2_n_rows, int z2_n_cols,
                             double* mat_a2, int a2_n_rows, int a2_n_cols);
 
+/*
+ * Do the backpropagation in GPU entirely
+ */
 void gpu_accel_backprop (const double reg,
 						 const double* const mat_diff, const int diff_n_rows, const int diff_n_cols,
                          const double* const mat_X, const int X_n_rows, const int X_n_cols,
@@ -226,5 +276,49 @@ void gpu_accel_backprop (const double reg,
                          double* mat_dW2, const int dW2_n_rows, const int dW2_n_cols,
                          double* mat_db1, const int db1_n_cols,
                          double* mat_db2, const int db2_n_cols);
+
+/*
+ * Do the feedforward and backpropagation in GPU entirely
+ * Since this function combines both the feedforward and
+ * backpropagation algorithm, some communication cost over
+ * the the PCI express is saved such as the cost of transfering
+ * the data of sub-matrix X, matrices W1 and W2
+ * the second GEMM algorithm is used
+ */
+void gpu_accel_feedforward_backprop_1 (const double reg,
+                                       const double* const mat_X, int X_n_rows, int X_n_cols,
+                                       const double* const mat_y, int y_n_rows, int y_n_cols,
+                                       const double* const mat_W1, int W1_n_rows, int W1_n_cols,
+                                       const double* const mat_b1, int b1_n_rows, int b1_n_cols,
+                                       double* mat_z1, int z1_n_rows, int z1_n_cols,
+                                       double* mat_a1, int a1_n_rows, int a1_n_cols,
+                                       const double* const mat_W2, int W2_n_rows, int W2_n_cols,
+                                       const double* const mat_b2, int b2_n_rows, int b2_n_cols,
+                                       double* mat_z2, int z2_n_rows, int z2_n_cols,
+                                       double* mat_a2, int a2_n_rows, int a2_n_cols,
+                                       double* mat_dW1, const int dW1_n_rows, const int dW1_n_cols,
+                                       double* mat_dW2, const int dW2_n_rows, const int dW2_n_cols,
+                                       double* mat_db1, const int db1_n_cols,
+                                       double* mat_db2, const int db2_n_cols);
+
+/*
+ * Do the feedforward and backpropagation in GPU entirely
+ * Compared to gpu_accel_feedforward_backprop_1, this function
+ * further minimizes the communication cost. Redundant communication
+ * such as transferring back data of z1, a1, z2 from GPU
+ * Also, the third GEMM algorithm, which is faster, is used
+ */
+void gpu_accel_feedforward_backprop_2 (const double reg,
+                                       double* mat_X, int X_n_rows, int X_n_cols,
+                                       double* mat_y, int y_n_rows, int y_n_cols,
+                                       double* mat_W1, int W1_n_rows, int W1_n_cols,
+                                       double* mat_b1, int b1_n_rows, int b1_n_cols,
+                                       double* mat_W2, int W2_n_rows, int W2_n_cols,
+                                       double* mat_b2, int b2_n_rows, int b2_n_cols,
+                                       double* mat_a2, int a2_n_rows, int a2_n_cols,
+                                       double* mat_dW1, const int dW1_n_rows, const int dW1_n_cols,
+                                       double* mat_dW2, const int dW2_n_rows, const int dW2_n_cols,
+                                       double* mat_db1, const int db1_n_cols,
+                                       double* mat_db2, const int db2_n_cols);
 
 #endif
