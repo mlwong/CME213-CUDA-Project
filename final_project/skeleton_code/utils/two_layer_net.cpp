@@ -619,6 +619,8 @@ void parallel_train_1 (std::vector<TwoLayerNet> &nn,
                  * 4. update local network coefficient at each node
                  */
                 
+                /* Subdivide X and y into batches */
+                
                 t_start = MPI_Wtime();
                 
                 int last_row = std::min ((batch + 1)*batch_size-1, X_num_rows-1);
@@ -744,8 +746,9 @@ void parallel_train_1 (std::vector<TwoLayerNet> &nn,
                 
                 t_start = MPI_Wtime();
                 
-                gpu_feedforward_1 (nn[0], X_sub_batch, bpcache);
+                /* Do the feedforward and backpropagation */
                 
+                gpu_feedforward_1 (nn[0], X_sub_batch, bpcache);
                 gpu_backprop_1 (nn[0], y_sub_batch, reg, bpcache, bpgrads);
                 
                 t_end = MPI_Wtime();
@@ -779,7 +782,7 @@ void parallel_train_1 (std::vector<TwoLayerNet> &nn,
                 
                 t_print = t_end - t_start;
                 
-                // Sum up dW and dB from all processes by using MPI_Allreduce
+                /* Sum up dW and dB from all processes by using MPI_Allreduce */
                 
                 t_start = MPI_Wtime();
                 
@@ -811,7 +814,7 @@ void parallel_train_1 (std::vector<TwoLayerNet> &nn,
                 
                 t_start = MPI_Wtime();
                 
-                // Gradient descent step on the local neutral network of all the nodes
+                /* Gradient descent step on the local neutral network of all the nodes */
                 for (int i = 0; i < nn[0].W.size(); i++)
                 {
                     nn[0].W[i] -= learning_rate / num_procs * bpgrads_global_sum.dW[i];
@@ -847,6 +850,8 @@ void parallel_train_1 (std::vector<TwoLayerNet> &nn,
                 struct grads bpgrads;
                 
                 t_start = MPI_Wtime();
+                
+                // Do the feedforward and backpropagation
                 
                 gpu_feedforward_1 (nn[0], X_batch, bpcache);
                 gpu_backprop_1 (nn[0], y_batch, reg, bpcache, bpgrads);
@@ -884,7 +889,7 @@ void parallel_train_1 (std::vector<TwoLayerNet> &nn,
                 
                 t_start = MPI_Wtime();
                 
-                // Gradient descent step
+                /* Gradient descent step */
                 for (int i = 0; i < nn[0].W.size(); ++i)
                 {
                     nn[0].W[i] -= learning_rate * bpgrads.dW[i];
@@ -992,6 +997,8 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
                  * 4. update local network coefficient at each node
                  */
                 
+                /* Sudivide X and y into batches */
+                
                 t_start = MPI_Wtime();
                 
                 int last_row = std::min ((batch + 1)*batch_size-1, X_num_rows-1);
@@ -1066,6 +1073,8 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
                 
                 t_start = MPI_Wtime();
                 
+                
+                
                 for (int i = 0; i < y_num_cols; i++)
                 {
                     MPI_SAFE_CALL(
@@ -1117,6 +1126,8 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
                 
                 t_start = MPI_Wtime();
                 
+                /* Do the feedforward and backpropagation */
+                
                 gpu_feedforward_backprop_1 (nn[0], X_sub_batch, y_sub_batch, reg, bpcache, bpgrads);
                 
                 t_end = MPI_Wtime();
@@ -1150,7 +1161,7 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
                 
                 t_print = t_end - t_start;
                 
-                // Sum up dW and dB from all processes by using MPI_Allreduce
+                /* Sum up dW and dB from all processes by using MPI_Allreduce */
                 
                 t_start = MPI_Wtime();
                 
@@ -1182,7 +1193,7 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
                 
                 t_start = MPI_Wtime();
                 
-                // Gradient descent step on the local neutral network of all the nodes
+                /* Gradient descent step on the local neutral network of all the nodes */
                 for (int i = 0; i < nn[0].W.size(); i++)
                 {
                     nn[0].W[i] -= learning_rate / num_procs * bpgrads_global_sum.dW[i];
@@ -1204,6 +1215,8 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
         {
             for (int batch = 0; batch < num_batches; ++batch)
             {
+                /* Subdivide X and y into batches */
+                
                 t_start = MPI_Wtime();
                 
                 int last_row = std::min ((batch + 1)*batch_size-1, X_num_rows-1);
@@ -1218,6 +1231,8 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
                 struct grads bpgrads;
                 
                 t_start = MPI_Wtime();
+                
+                /* Do the feedforward and backpropagation */
                 
                 gpu_feedforward_backprop_1 (nn[0], X_batch, y_batch, reg, bpcache, bpgrads);
                 
@@ -1254,7 +1269,7 @@ void parallel_train_2 (std::vector<TwoLayerNet> &nn,
                 
                 t_start = MPI_Wtime();
                 
-                // Gradient descent step
+                /* Gradient descent step */
                 for (int i = 0; i < nn[0].W.size(); ++i)
                 {
                     nn[0].W[i] -= learning_rate * bpgrads.dW[i];
@@ -1428,7 +1443,6 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
         t_print += (t_end - t_start);
         
         int sub_batch_size = (batch_size + num_procs - 1)/num_procs;
-        // int sub_batch_size = batch_size;
         
         int num_sub_batches = (num_inputs_per_proc + sub_batch_size - 1)/sub_batch_size;
 
@@ -1454,14 +1468,15 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
             
             t_batch += (t_end - t_start);
             
-            // If the sub-batch is inside the sub-matrix X, do the GPU feedforward and backpop.
-            // Otherwise, there is no contribution to dW and dB from this process
-            
             struct cache bpcache;
             struct grads bpgrads;
-
+            
+            // If the sub-batch is inside the sub-matrix X, do the GPU feedforward and backpop.
+            // Otherwise, there is no contribution to dW and dB from this process
             if (sub_batch*sub_batch_size < X_process.n_rows)
             {
+                /* Subdivide batches in each node into sub-batches */
+                
                 t_start = MPI_Wtime();
                 
                 int last_row = std::min((sub_batch + 1)*sub_batch_size - 1, X_process_num_rows - 1);
@@ -1473,6 +1488,8 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
                 t_batch += (t_end - t_start);
                 
                 t_start = MPI_Wtime();
+                
+                /* Do the feedforward and backpropagation */
                 
                 gpu_feedforward_backprop_2 (nn[0], X_sub_batch, y_sub_batch, reg, bpcache, bpgrads);
                 
@@ -1529,7 +1546,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
             
             if (num_procs > 1)
             {
-                // Sum up dW and dB from all processes by using MPI_Allreduce
+                /* Sum up dW and dB from all processes by using MPI_Allreduce */
                 
                 t_start = MPI_Wtime();
                 
@@ -1561,7 +1578,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
             
                 t_start = MPI_Wtime();
                 
-                // Gradient descent step on the local neutral network of all the nodes
+                /* Gradient descent step on the local neutral network of all the nodes */
                 for (int i = 0; i < nn[0].W.size(); i++)
                 {
                     nn[0].W[i] -= (learning_rate / num_procs) * bpgrads_global_sum.dW[i];
@@ -1580,7 +1597,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
             {
                 t_start = MPI_Wtime();
                 
-                // Gradient descent step on the local neutral network
+                /* Gradient descent step on the local neutral network */
                 for (int i = 0; i < nn[0].W.size(); i++)
                 {
                     nn[0].W[i] -= learning_rate * bpgrads.dW[i];
@@ -1774,7 +1791,6 @@ void parallel_train_4 (std::vector<TwoLayerNet> &nn,
         t_print += (t_end - t_start);
         
         int sub_batch_size = (batch_size + num_procs - 1)/num_procs;
-        // int sub_batch_size = batch_size;
         
         int num_sub_batches = (num_inputs_per_proc + sub_batch_size - 1)/sub_batch_size;
         for (int sub_batch = 0; sub_batch < num_sub_batches; sub_batch++)
@@ -1785,14 +1801,16 @@ void parallel_train_4 (std::vector<TwoLayerNet> &nn,
             
             t_batch += (t_end - t_start);
             
-            // If the sub-batch is inside the sub-matrix X, do the GPU feedforward and backpop.
-            // Otherwise, there is no contribution to dW and dB from this process
-            
             struct cache bpcache;
             struct grads bpgrads;
             
+            // If the sub-batch is inside the sub-matrix X, do the GPU feedforward and backpop.
+            // Otherwise, there is no contribution to dW and dB from this process
+            
             if (sub_batch*sub_batch_size < X_process.n_rows)
             {
+                /* Subdivide batches in each node into sub-batches */
+                
                 t_start = MPI_Wtime();
                 
                 int last_row = std::min((sub_batch + 1)*sub_batch_size - 1, X_process_num_rows - 1);
@@ -1804,6 +1822,8 @@ void parallel_train_4 (std::vector<TwoLayerNet> &nn,
                 t_batch += (t_end - t_start);
                 
                 t_start = MPI_Wtime();
+                
+                /* Do the feedforward and backpropagation */
                 
                 gpu_feedforward_backprop_2 (nn[0], X_sub_batch, y_sub_batch, reg, bpcache, bpgrads);
                 
