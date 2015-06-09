@@ -200,6 +200,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
  * are combined with minimum communication
  * Also, scattering of X is done outside the iteration
  * GEMM_3 is used
+ * MPI_Isend and MPI_Ireceive is used
  */
 void parallel_train_4 (std::vector<TwoLayerNet> &nn,
                        const arma::mat& X,

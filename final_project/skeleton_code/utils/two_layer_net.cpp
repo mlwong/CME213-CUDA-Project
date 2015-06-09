@@ -385,8 +385,7 @@ void gpu_feedforward_backprop_2 (TwoLayerNet &nn,
                                       bpgrads.dW[1].memptr(), bpgrads.dW[1].n_rows, bpgrads.dW[1].n_cols,
                                       bpgrads.db[0].memptr(), bpgrads.db[0].n_cols,
                                       bpgrads.db[1].memptr(), bpgrads.db[1].n_cols);
-                           
-
+    
     cache.yc = a2;
 }
 
@@ -1373,7 +1372,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
     t_start = MPI_Wtime();
     
     X_process.resize(X_process_num_rows, X_num_cols);
-    
+
     /* Subdivide the one-hot vectors into batches and send the batches to each MPI node from rank 0 */
     
     int y_process_num_rows = X_process_num_rows;
@@ -1432,6 +1431,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
         // int sub_batch_size = batch_size;
         
         int num_sub_batches = (num_inputs_per_proc + sub_batch_size - 1)/sub_batch_size;
+
         for (int sub_batch = 0; sub_batch < num_sub_batches; sub_batch++)
         {
             t_start = MPI_Wtime();
@@ -1459,7 +1459,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
             
             struct cache bpcache;
             struct grads bpgrads;
-            
+
             if (sub_batch*sub_batch_size < X_process.n_rows)
             {
                 t_start = MPI_Wtime();
@@ -1469,7 +1469,7 @@ void parallel_train_3 (std::vector<TwoLayerNet> &nn,
                 arma::mat y_sub_batch = y_process.rows (sub_batch*sub_batch_size, last_row);
                 
                 t_end = MPI_Wtime();
-                
+            
                 t_batch += (t_end - t_start);
                 
                 t_start = MPI_Wtime();

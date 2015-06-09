@@ -278,8 +278,8 @@ int main (int argc, char *argv[]) {
 	    /* Split into train set and dev set, you should use train set to train your
 	       neural network and dev set to evaluate its precision */
 	    int dev_size = (int) (0.1 * NUM_TRAIN);
-	    x_train = x.rows (0, NUM_TRAIN-dev_size);
-	    y_train = y.rows (0, NUM_TRAIN-dev_size);
+	    x_train = x.rows (0, NUM_TRAIN-dev_size-1);
+	    y_train = y.rows (0, NUM_TRAIN-dev_size-1);
 	    label_train = label.rows (0, NUM_TRAIN-dev_size);
 
 	    x_dev = x.rows (NUM_TRAIN-dev_size, NUM_TRAIN - 1);

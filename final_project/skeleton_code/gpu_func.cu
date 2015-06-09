@@ -2869,7 +2869,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 	
 	dim3 n_threads(0, 0);
 	dim3 n_blocks(0, 0);
-	
+
 	/*
 	 * Allocate the device memory
 	 */
@@ -2946,7 +2946,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 																			  W1_n_rows,
 																			  false,
 																			  false);
-		
+	
 	/*
 	 * Compute the sigmoid of z1
 	 */
@@ -2999,7 +2999,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 																			  W2_n_rows,
 																			  false,
 																			  false);
-	
+
 	/*
 	 * Compute the softmax of z2
 	 */
@@ -3039,7 +3039,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 	device_normalize <<<n_blocks, n_threads>>> (d_mat_z2, d_col_vec, a2_n_rows, a2_n_cols);
 	
 	cudaFree(d_col_vec);
-	
+
 	/*
 	 * Compute d_mat_diff
 	 */
@@ -3054,7 +3054,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 	
 	// Launch the kernel to apply the sigmoid function
 	device_compute_diff <<<n_blocks, n_threads>>> (d_mat_z2, d_mat_y, d_mat_diff, y_n_rows, y_n_cols);
-	
+
 	/*
 	 * Compute dW2
 	 */
@@ -3092,7 +3092,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 																			  W1_n_rows,
 																			  false,
 																			  false);
-	
+
 	/*
 	 * Compute dW1
 	 */
@@ -3163,7 +3163,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 																			  X_n_cols,
 																			  false,
 																			  false);
-	
+
 	/*
 	 * Compute db1
 	 */
@@ -3177,7 +3177,7 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 	n_blocks.y = y_n_rows;
 	
 	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_diff, d_mat_db2, y_n_cols, y_n_rows);
-	
+
 	/*
 	 * Compute db2
 	 */
@@ -3191,18 +3191,16 @@ void gpu_accel_feedforward_backprop_2 (const double reg,
 	n_blocks.y = W2_n_cols;
 	
 	device_sum_col_block <BLOCK_SIZE_REDUCTION> <<<n_blocks, n_threads>>> (d_mat_dz1, d_mat_db1, y_n_rows, W2_n_cols);
-	
+
 	/*
 	 * Copy data from the device memory to the host memory
 	 */
-	
-	checkCudaErrors(cudaMemcpy(mat_a2, d_mat_z2, a2_n_rows*a2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
-	
+	checkCudaErrors(cudaMemcpy(mat_a2, d_mat_z2, X_n_rows*W2_n_rows*sizeof(double), cudaMemcpyDeviceToHost));	
 	checkCudaErrors(cudaMemcpy(mat_dW1, d_mat_dW1, dW1_n_rows*dW1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaMemcpy(mat_dW2, d_mat_dW2, dW2_n_rows*dW2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
-	checkCudaErrors(cudaMemcpy(mat_db1, d_mat_db1, db1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(mat_db1, d_mat_db1, db1_n_cols*sizeof(double), cudaMemcpyDeviceToHost));	
 	checkCudaErrors(cudaMemcpy(mat_db2, d_mat_db2, db2_n_cols*sizeof(double), cudaMemcpyDeviceToHost));
-		
+	
 	/*
 	 * Free the device memory
 	 */
